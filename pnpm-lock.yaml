@@ -61,6 +61,34 @@ importers:
         specifier: 5.1.1
         version: 5.1.1(@types/node@22.20.5)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15))
 
+  apps/worker:
+    dependencies:
+      '@dosly/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@dosly/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@dosly/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      bullmq:
+        specifier: 6.7.8
+        version: 6.7.8(ioredis@6.0.0)(pg@8.23.1)
+      ioredis:
+        specifier: 6.0.0
+        version: 6.0.0
+      pino:
+        specifier: 10.4.0
+        version: 10.4.0
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
+    devDependencies:
+      tsx:
+        specifier: 4.23.15
+        version: 4.23.15
+
   packages/core:
     dependencies:
       '@dosly/db':
