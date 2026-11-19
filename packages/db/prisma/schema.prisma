@@ -1,0 +1,327 @@
+// Dosly data model. Every tenant-owned row carries agencyId; the API scopes every query by it.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  OWNER
+  MANAGER
+  MODERATOR
+  WRITER
+}
+
+model Agency {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  createdAt   DateTime @default(now())
+  memberships Membership[]
+  clients     Client[]
+  waNumbers   WhatsAppNumber[]
+  contacts    Contact[]
+  conversations Conversation[]
+  messages    Message[]
+  quickReplies QuickReply[]
+  socialAccounts SocialAccount[]
+  posts       Post[]
+  auditLogs   AuditLog[]
+  invites     Invite[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+  memberships  Membership[]
+  sessions     Session[]
+  assignments  ClientAssignment[]
+  assignedConversations Conversation[] @relation("assignee")
+  sentMessages Message[]
+  createdPosts Post[] @relation("postAuthor")
+  approvedPosts Post[] @relation("postApprover")
+}
+
+model Membership {
+  id        String   @id @default(cuid())
+  agencyId  String
+  userId    String
+  role      Role
+  createdAt DateTime @default(now())
+  agency    Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([agencyId, userId])
+}
+
+model Invite {
+  id        String   @id @default(cuid())
+  agencyId  String
+  email     String
+  role      Role
+  tokenHash String   @unique
+  expiresAt DateTime
+  acceptedAt DateTime?
+  createdAt DateTime @default(now())
+  agency    Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  @@index([agencyId])
+}
+
+model Session {
+  id        String   @id // sha256 of the cookie token, never the token itself
+  userId    String
+  agencyId  String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Client {
+  id          String   @id @default(cuid())
+  agencyId    String
+  name        String
+  notes       String?
+  archivedAt  DateTime?
+  createdAt   DateTime @default(now())
+  agency      Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  assignments ClientAssignment[]
+  waNumbers   WhatsAppNumber[]
+  contacts    Contact[]
+  conversations Conversation[]
+  socialAccounts SocialAccount[]
+  posts       Post[]
+
+  @@index([agencyId])
+}
+
+model ClientAssignment {
+  clientId String
+  userId   String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([clientId, userId])
+}
+
+enum ChannelStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+}
+
+model WhatsAppNumber {
+  id             String   @id @default(cuid())
+  agencyId       String
+  clientId       String
+  phoneNumberId  String   @unique // Meta phone_number_id, the webhook routing key
+  wabaId         String
+  displayPhone   String
+  verifiedName   String?
+  accessTokenEnc String   // AES-256-GCM, see @dosly/shared crypto
+  status         ChannelStatus @default(CONNECTED)
+  createdAt      DateTime @default(now())
+  agency         Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  conversations  Conversation[]
+  contacts       Contact[]
+
+  @@index([agencyId])
+}
+
+model Contact {
+  id         String   @id @default(cuid())
+  agencyId   String
+  clientId   String
+  waNumberId String
+  waId       String   // customer's WhatsApp id (phone in E.164 without +)
+  name       String?
+  createdAt  DateTime @default(now())
+  agency     Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  waNumber   WhatsAppNumber @relation(fields: [waNumberId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+
+  @@unique([waNumberId, waId])
+}
+
+enum ConversationStatus {
+  OPEN
+  PENDING
+  CLOSED
+}
+
+model Conversation {
+  id             String   @id @default(cuid())
+  agencyId       String
+  clientId       String
+  waNumberId     String
+  contactId      String
+  status         ConversationStatus @default(OPEN)
+  assigneeId     String?
+  unreadCount    Int      @default(0)
+  lastMessageAt  DateTime @default(now())
+  lastInboundAt  DateTime? // WhatsApp only allows free-form replies within 24h of this
+  lastPreview    String?
+  createdAt      DateTime @default(now())
+  agency         Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  waNumber       WhatsAppNumber @relation(fields: [waNumberId], references: [id], onDelete: Cascade)
+  contact        Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  assignee       User?    @relation("assignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  messages       Message[]
+
+  @@unique([waNumberId, contactId])
+  @@index([agencyId, lastMessageAt])
+}
+
+enum Direction {
+  IN
+  OUT
+}
+
+enum MessageStatus {
+  RECEIVED
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  agencyId       String
+  conversationId String
+  direction      Direction
+  type           String   // text, image, audio, document, template, ...
+  body           String?
+  mediaId        String?
+  waMessageId    String?  @unique
+  status         MessageStatus
+  error          String?
+  sentById       String?
+  createdAt      DateTime @default(now())
+  agency         Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sentBy         User?    @relation(fields: [sentById], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
+}
+
+model QuickReply {
+  id        String   @id @default(cuid())
+  agencyId  String
+  shortcut  String
+  body      String
+  createdAt DateTime @default(now())
+  agency    Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  @@unique([agencyId, shortcut])
+}
+
+enum Platform {
+  FACEBOOK_PAGE
+  INSTAGRAM
+}
+
+model SocialAccount {
+  id             String   @id @default(cuid())
+  agencyId       String
+  clientId       String
+  platform       Platform
+  externalId     String   // Page id or Instagram professional account id
+  name           String
+  accessTokenEnc String
+  status         ChannelStatus @default(CONNECTED)
+  createdAt      DateTime @default(now())
+  agency         Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  targets        PostTarget[]
+
+  @@unique([agencyId, platform, externalId])
+}
+
+enum PostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  PARTIAL
+  FAILED
+}
+
+model Post {
+  id           String   @id @default(cuid())
+  agencyId     String
+  clientId     String
+  createdById  String
+  approvedById String?
+  caption      String
+  mediaUrls    String[]
+  scheduledAt  DateTime?
+  status       PostStatus @default(DRAFT)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  agency       Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client       Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdBy    User     @relation("postAuthor", fields: [createdById], references: [id])
+  approvedBy   User?    @relation("postApprover", fields: [approvedById], references: [id])
+  targets      PostTarget[]
+
+  @@index([agencyId, scheduledAt])
+}
+
+enum TargetStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+}
+
+model PostTarget {
+  id              String   @id @default(cuid())
+  postId          String
+  socialAccountId String
+  status          TargetStatus @default(PENDING)
+  externalPostId  String?
+  error           String?
+  attempts        Int      @default(0)
+  publishedAt     DateTime?
+  post            Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, socialAccountId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  agencyId  String
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  meta      Json?
+  createdAt DateTime @default(now())
+  agency    Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  @@index([agencyId, createdAt])
+}
+
+model WebhookEvent {
+  id          String   @id @default(cuid())
+  source      String
+  payload     Json
+  receivedAt  DateTime @default(now())
+  processedAt DateTime?
+  error       String?
+}

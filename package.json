@@ -1,0 +1,22 @@
+{
+  "name": "dosly",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "db:generate": "pnpm --filter @dosly/db generate",
+    "db:migrate": "pnpm --filter @dosly/db migrate:dev",
+    "db:deploy": "pnpm --filter @dosly/db migrate:deploy",
+    "db:seed": "pnpm --filter @dosly/db seed"
+  },
+  "devDependencies": {
+    "turbo": "2.11.13",
+    "typescript": "5.9.3",
+    "@types/node": "^22.15.0"
+  }
+}
