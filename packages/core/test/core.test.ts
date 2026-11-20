@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { encrypt } from '@dosly/shared';
-import { processWhatsAppWebhook, publishPost, type RealtimeEvent } from '../src/index.js';
+import { overduePosts, processWhatsAppWebhook, publishPost, type RealtimeEvent } from '../src/index.js';
 import { db, fixture, key, reset } from './helpers.js';
 
 const events: RealtimeEvent[] = [];
@@ -68,6 +68,16 @@ describe('publishPost', () => {
     });
     expect(status).toBe('PUBLISHED');
     expect(calls.sort()).toEqual(['fb:page-token', 'ig:ig-token']);
+  });
+
+  it('holds a post the client has not approved, and the sweep skips it', async () => {
+    const post = await scheduledPost();
+    await db.post.update({ where: { id: post.id }, data: { clientReview: 'PENDING', scheduledAt: new Date(Date.now() - 60_000) } });
+    const never = { facebook: async () => { throw new Error('must not publish'); }, instagram: async () => { throw new Error('must not publish'); } };
+    expect(await publishPost(db, post.id, key, pub, never)).toBeNull();
+    expect(await overduePosts(db)).toEqual([]);
+    await db.post.update({ where: { id: post.id }, data: { clientReview: 'APPROVED' } });
+    expect(await overduePosts(db)).toEqual([{ id: post.id }]);
   });
 
   it('marks partial failures and retries only the failed target', async () => {

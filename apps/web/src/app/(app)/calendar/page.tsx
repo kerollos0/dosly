@@ -4,7 +4,7 @@ import useSWR from 'swr';
 import { addDays, addMonths, endOfMonth, endOfWeek, format, isSameDay, isSameMonth, startOfDay, startOfMonth, startOfWeek } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight, ImagePlus } from 'lucide-react';
-import { api, can, fetcher, type Client, type Post } from '@/lib/api';
+import { api, can, fetcher, REVIEW_LABEL, type Client, type Post } from '@/lib/api';
 import { useMe } from '@/lib/me';
 import { Button, ErrorText, Field, Modal, PageHeader, Pill, Select, Textarea, cx } from '@/components/ui';
 
@@ -46,6 +46,7 @@ export default function CalendarPage() {
                 {dayPosts.map(p => (
                   <button key={p.id} onClick={() => setOpen(p)} className="flex flex-col gap-0.5 rounded-[var(--radius-sm)] border border-line bg-surface p-1.5 text-start text-xs hover:border-faience">
                     <span className="flex items-center justify-between gap-1"><span className="num font-semibold">{p.scheduledAt ? format(new Date(p.scheduledAt), 'HH:mm') : '—'}</span><Pill tone={STATUS[p.status]?.t}>{STATUS[p.status]?.l}</Pill></span>
+                    {p.status === 'SCHEDULED' && (p.clientReview === 'PENDING' || p.clientReview === 'CHANGES_REQUESTED') && <span className={cx('text-xs font-semibold', p.clientReview === 'PENDING' ? 'text-warning' : 'text-danger')}>{REVIEW_LABEL[p.clientReview]}</span>}
                     <span className="truncate text-faience-ink">{p.client.name}</span>
                     <span className="line-clamp-2 text-muted">{p.caption}</span>
                   </button>
@@ -125,7 +126,8 @@ function PostDetail({ post, onClose, onChanged }: { post: Post; onClose: () => v
   return (
     <Modal open onClose={onClose} title={post.client.name}>
       <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center gap-2"><Pill tone={s?.t}>{s?.l}</Pill>{post.scheduledAt && <span className="num text-sm text-muted">{format(new Date(post.scheduledAt), 'yyyy-MM-dd HH:mm')}</span>}<span className="text-sm text-muted">· كتبه {post.createdBy.name}</span></div>
+        <div className="flex flex-wrap items-center gap-2"><Pill tone={s?.t}>{s?.l}</Pill>{post.scheduledAt && <span className="num text-sm text-muted">{format(new Date(post.scheduledAt), 'yyyy-MM-dd HH:mm')}</span>}<span className="text-sm text-muted">· كتبه {post.createdBy.name}</span>{post.clientReview !== 'NOT_REQUIRED' && <Pill tone={post.clientReview === 'APPROVED' ? 'good' : post.clientReview === 'PENDING' ? 'warn' : 'bad'}>{REVIEW_LABEL[post.clientReview]}</Pill>}</div>
+        {post.clientReview === 'CHANGES_REQUESTED' && post.clientNote && <p className="rounded-[var(--radius-md)] border border-danger/30 bg-danger/5 p-3 text-sm"><span className="font-semibold">طلب العميل: </span>{post.clientNote}</p>}
         {post.mediaUrls[0] && <img src={post.mediaUrls[0]} alt="" className="max-h-64 rounded-[var(--radius-md)] object-cover" />}
         <p className="whitespace-pre-wrap">{post.caption}</p>
         <ul className="flex flex-col gap-1 text-sm">

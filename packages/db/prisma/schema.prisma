@@ -104,8 +104,50 @@ model Client {
   conversations Conversation[]
   socialAccounts SocialAccount[]
   posts       Post[]
+  portalUsers ClientUser[]
+  requiresClientApproval Boolean @default(false) // posts wait for the client's OK in the portal before publishing
 
   @@index([agencyId])
+}
+
+/// A person on the agency's client side (the business owner). Signs in to the portal only,
+/// with separate sessions, and never sees the agency dashboard.
+model ClientUser {
+  id          String   @id @default(cuid())
+  agencyId    String
+  clientId    String
+  email       String
+  name        String
+  createdAt   DateTime @default(now())
+  lastLoginAt DateTime?
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  sessions    ClientSession[]
+  loginTokens ClientLoginToken[]
+
+  @@unique([clientId, email])
+  @@index([agencyId])
+}
+
+model ClientSession {
+  id           String   @id // sha256 of the cookie token
+  clientUserId String
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  clientUser   ClientUser @relation(fields: [clientUserId], references: [id], onDelete: Cascade)
+
+  @@index([clientUserId])
+}
+
+/// One-time sign-in link for the portal (no passwords for business owners).
+model ClientLoginToken {
+  id           String   @id // sha256 of the token in the link
+  clientUserId String
+  expiresAt    DateTime
+  usedAt       DateTime?
+  createdAt    DateTime @default(now())
+  clientUser   ClientUser @relation(fields: [clientUserId], references: [id], onDelete: Cascade)
+
+  @@index([clientUserId])
 }
 
 model ClientAssignment {
@@ -255,6 +297,13 @@ model SocialAccount {
   @@unique([agencyId, platform, externalId])
 }
 
+enum ClientReview {
+  NOT_REQUIRED
+  PENDING
+  APPROVED
+  CHANGES_REQUESTED
+}
+
 enum PostStatus {
   DRAFT
   SCHEDULED
@@ -274,6 +323,9 @@ model Post {
   mediaUrls    String[]
   scheduledAt  DateTime?
   status       PostStatus @default(DRAFT)
+  clientReview ClientReview @default(NOT_REQUIRED)
+  clientNote   String?  // what the client asked to change
+  reviewedAt   DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   agency       Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
@@ -283,6 +335,7 @@ model Post {
   targets      PostTarget[]
 
   @@index([agencyId, scheduledAt])
+  @@index([clientId, scheduledAt])
 }
 
 enum TargetStatus {

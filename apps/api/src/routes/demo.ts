@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ROLES } from '@dosly/shared';
 import { seedDemoAgency, simulateInbound } from '@dosly/core';
 import { audit, createSession, HttpError, requireAuth, SESSION_COOKIE } from '../auth.js';
+import { createPortalSession } from '../portal-auth.js';
 
 /** Registered only when DEMO_MODE=true. Lets anyone open a private sandbox agency with one click. */
 export const demoRoutes: FastifyPluginAsync = async app => {
@@ -50,6 +51,16 @@ export const demoRoutes: FastifyPluginAsync = async app => {
     const { auth } = await sandboxOf(req);
     const { clientId } = z.object({ clientId: z.string().optional() }).parse(req.body ?? {});
     await simulateInbound(db, realtime, { agencyId: auth.agencyId, clientId });
+    return { ok: true };
+  });
+
+  // Opens the client portal as that client's owner, in the same browser, without a sign-in link.
+  app.post('/demo/portal', async (req, reply) => {
+    const { auth } = await sandboxOf(req);
+    const { clientId } = z.object({ clientId: z.string() }).parse(req.body ?? {});
+    const user = await db.clientUser.findFirst({ where: { clientId, agencyId: auth.agencyId }, orderBy: { createdAt: 'asc' } });
+    if (!user) throw new HttpError(404, 'العميل ده مالوش حد على البوابة', 'not_found');
+    await createPortalSession(db, reply, user.id, secure);
     return { ok: true };
   });
 

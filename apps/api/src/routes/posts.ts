@@ -44,10 +44,12 @@ export const postRoutes: FastifyPluginAsync = async app => {
     await validateTargets(auth.agencyId, input.clientId, input.socialAccountIds, input.mediaUrls);
     if (input.scheduledAt && input.scheduledAt.getTime() < Date.now() - 60_000) throw new HttpError(400, 'الميعاد ده عدّى', 'in_past');
     const schedule = !!input.scheduledAt && can(auth.role, 'posts:approve');
+    const client = await db.client.findUniqueOrThrow({ where: { id: input.clientId } });
     const post = await db.post.create({
       data: {
         agencyId: auth.agencyId, clientId: input.clientId, createdById: auth.userId, caption: input.caption, mediaUrls: input.mediaUrls,
         scheduledAt: input.scheduledAt ?? null, status: schedule ? 'SCHEDULED' : 'DRAFT', approvedById: schedule ? auth.userId : null,
+        clientReview: schedule && client.requiresClientApproval ? 'PENDING' : 'NOT_REQUIRED',
         targets: { create: [...new Set(input.socialAccountIds)].map(socialAccountId => ({ socialAccountId })) }
       }
     });
@@ -67,6 +69,10 @@ export const postRoutes: FastifyPluginAsync = async app => {
     if (input.socialAccountIds) await validateTargets(auth.agencyId, post.clientId, input.socialAccountIds, mediaUrls);
     // Any edit by a writer sends the post back for approval.
     const needsApproval = !can(auth.role, 'posts:approve');
+    const client = await db.client.findUniqueOrThrow({ where: { id: post.clientId } });
+    // A changed post is a different post: the client has to look at it again.
+    const changed = input.caption !== undefined || input.mediaUrls !== undefined || input.scheduledAt !== undefined;
+    const review = needsApproval ? { clientReview: 'NOT_REQUIRED' as const } : client.requiresClientApproval && changed && post.status === 'SCHEDULED' ? { clientReview: 'PENDING' as const, reviewedAt: null } : {};
     const updated = await db.$transaction(async tx => {
       if (input.socialAccountIds) {
         await tx.postTarget.deleteMany({ where: { postId: post.id } });
@@ -74,7 +80,7 @@ export const postRoutes: FastifyPluginAsync = async app => {
       }
       return tx.post.update({
         where: { id: post.id },
-        data: { caption: input.caption, mediaUrls, scheduledAt: input.scheduledAt === undefined ? undefined : input.scheduledAt, ...(needsApproval ? { status: 'DRAFT', approvedById: null } : {}) }
+        data: { caption: input.caption, mediaUrls, scheduledAt: input.scheduledAt === undefined ? undefined : input.scheduledAt, ...review, ...(needsApproval ? { status: 'DRAFT', approvedById: null } : {}) }
       });
     });
     if (updated.status === 'SCHEDULED' && updated.scheduledAt) await queues.schedulePost(updated.id, updated.scheduledAt);
@@ -89,7 +95,8 @@ export const postRoutes: FastifyPluginAsync = async app => {
     if (!post) throw new HttpError(404, 'البوست مش موجود', 'not_found');
     if (!post.scheduledAt) throw new HttpError(400, 'حدد ميعاد النشر الأول', 'no_time');
     if (post.status !== 'DRAFT') throw new HttpError(409, 'البوست ده مش مسودة', 'not_draft');
-    const updated = await db.post.update({ where: { id: post.id }, data: { status: 'SCHEDULED', approvedById: auth.userId } });
+    const client = await db.client.findUniqueOrThrow({ where: { id: post.clientId } });
+    const updated = await db.post.update({ where: { id: post.id }, data: { status: 'SCHEDULED', approvedById: auth.userId, clientReview: client.requiresClientApproval ? 'PENDING' : 'NOT_REQUIRED', reviewedAt: null } });
     await queues.schedulePost(post.id, post.scheduledAt);
     await audit(db, auth, 'post.approve', 'Post', post.id);
     await realtime.publish(auth.agencyId, { type: 'post.updated', postId: post.id, status: 'SCHEDULED' });
@@ -101,6 +108,7 @@ export const postRoutes: FastifyPluginAsync = async app => {
     const post = await db.post.findFirst({ where: { id: req.params.id, agencyId: auth.agencyId } });
     if (!post) throw new HttpError(404, 'البوست مش موجود', 'not_found');
     if (!['DRAFT', 'SCHEDULED', 'FAILED', 'PARTIAL'].includes(post.status)) throw new HttpError(409, 'البوست ده اتنشر أو بيتنشر دلوقتي', 'locked');
+    if (post.clientReview === 'PENDING' || post.clientReview === 'CHANGES_REQUESTED') throw new HttpError(409, post.clientReview === 'PENDING' ? 'البوست مستني موافقة العميل من البوابة' : 'العميل طلب تعديل على البوست ده', 'client_review');
     const now = new Date();
     await db.post.update({ where: { id: post.id }, data: { status: 'SCHEDULED', scheduledAt: post.status === 'PARTIAL' ? post.scheduledAt : now, approvedById: auth.userId } });
     await queues.schedulePost(post.id, now);

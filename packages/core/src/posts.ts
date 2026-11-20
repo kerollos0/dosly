@@ -1,4 +1,4 @@
-import type { Db } from '@dosly/db';
+import type { ClientReview, Db } from '@dosly/db';
 import { decrypt, publishFacebookPost, publishInstagramPost } from '@dosly/shared';
 import type { Publisher } from './events.js';
 
@@ -7,6 +7,9 @@ export type Publishers = {
   instagram: typeof publishInstagramPost;
 };
 
+/** Client review states that allow publishing. */
+export const PUBLISHABLE_REVIEW = ['NOT_REQUIRED', 'APPROVED'] as const satisfies ClientReview[];
+
 const defaultPublishers: Publishers = { facebook: publishFacebookPost, instagram: publishInstagramPost };
 
 /**
@@ -14,8 +17,9 @@ const defaultPublishers: Publishers = { facebook: publishFacebookPost, instagram
  * so a retry never double-posts. Returns the post's final status.
  */
 export async function publishPost(db: Db, postId: string, key: Buffer, pub: Publisher, publishers: Publishers = defaultPublishers) {
-  const claimed = await db.post.updateMany({ where: { id: postId, status: { in: ['SCHEDULED', 'FAILED', 'PARTIAL'] } }, data: { status: 'PUBLISHING' } });
-  if (claimed.count === 0) return null; // already publishing, published, or unscheduled
+  // A post waiting for the client's OK in the portal is held; the sweep retries it once approved.
+  const claimed = await db.post.updateMany({ where: { id: postId, status: { in: ['SCHEDULED', 'FAILED', 'PARTIAL'] }, clientReview: { in: [...PUBLISHABLE_REVIEW] } }, data: { status: 'PUBLISHING' } });
+  if (claimed.count === 0) return null; // already publishing, published, unscheduled, or waiting for the client
 
   const post = await db.post.findUniqueOrThrow({ where: { id: postId }, include: { targets: { include: { socialAccount: true } } } });
   for (const t of post.targets) {
@@ -48,5 +52,5 @@ export async function publishPost(db: Db, postId: string, key: Buffer, pub: Publ
 
 /** Posts whose time has passed but are still waiting, e.g. after Redis lost its delayed jobs. */
 export function overduePosts(db: Db, now = new Date()): Promise<{ id: string }[]> {
-  return db.post.findMany({ where: { status: 'SCHEDULED', scheduledAt: { lte: now } }, select: { id: true }, take: 100 });
+  return db.post.findMany({ where: { status: 'SCHEDULED', scheduledAt: { lte: now }, clientReview: { in: [...PUBLISHABLE_REVIEW] } }, select: { id: true }, take: 100 });
 }

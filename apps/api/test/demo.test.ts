@@ -30,6 +30,7 @@ describe('demo mode', () => {
     expect((await a('GET', '/api/clients')).json()).toHaveLength(4);
     const convs = (await a('GET', '/api/conversations')).json();
     expect(convs.items.length).toBeGreaterThanOrEqual(20);
+    expect(await db.message.count({ where: { agencyId: meA.agency.id, createdAt: { lt: new Date(Date.now() - 7 * 86400_000) } } })).toBeGreaterThan(50); // a month of history for reports
     expect(convs.items.every((c: { agencyId: string }) => c.agencyId === meA.agency.id)).toBe(true);
   });
 
@@ -48,11 +49,11 @@ describe('demo mode', () => {
   it('simulates a new customer and queues receipts after a reply', async () => {
     const { app, calls } = await demoApp();
     const as = await start(app);
-    const before = (await as('GET', '/api/conversations')).json().items.length;
+    const agencyId = (await as('GET', '/api/me')).json().agency.id;
+    const before = await db.conversation.count({ where: { agencyId } });
     expect((await as('POST', '/api/demo/inbound', {})).statusCode).toBe(200);
-    const items = (await as('GET', '/api/conversations')).json().items;
-    expect(items.length).toBe(before + 1);
-    const fresh = items[0];
+    expect(await db.conversation.count({ where: { agencyId } })).toBe(before + 1);
+    const fresh = (await as('GET', '/api/conversations')).json().items[0];
     const sent = await as('POST', `/api/conversations/${fresh.id}/messages`, { body: 'أهلًا بيك' });
     expect(sent.statusCode).toBe(201);
     expect(calls.demo).toEqual([sent.json().id]);

@@ -1,6 +1,6 @@
 import type { Db, Role } from '@dosly/db';
 import { encrypt, hashPassword, randomToken } from '@dosly/shared';
-import { demoPhone, type DemoKind } from './demo.js';
+import { DEMO_OPENERS, demoName, demoPhone, pick, type DemoKind } from './demo.js';
 
 /**
  * Builds one demo sandbox: an agency with a team, four clients, connected channels,
@@ -42,11 +42,11 @@ const SCRIPTS: Record<Exclude<DemoKind, 'general'>, Line[][]> = {
   ]
 };
 
-const CLIENTS: { kind: Exclude<DemoKind, 'general'>; name: string; notes: string; handle: string }[] = [
-  { kind: 'cafe', name: 'كافيه نسمة', notes: 'كافيه ومطبخ في التجمع الخامس. الباقة: 12 بوست + إدارة الرسايل', handle: 'nesma.cafe' },
-  { kind: 'perfume', name: 'لمسة للعطور', notes: 'متجر عطور أونلاين بيشحن لكل المحافظات', handle: 'lamsa.perfumes' },
-  { kind: 'clinic', name: 'عيادة د. سلمى لطب الأسنان', notes: 'عيادة أسنان في مدينة نصر. الحجز بالواتساب بس', handle: 'dr.salma.dental' },
-  { kind: 'academy', name: 'أكاديمية خطوة للغات', notes: 'كورسات إنجليزي وفرنساوي للكبار والأطفال', handle: 'khatwa.academy' }
+const CLIENTS: { kind: Exclude<DemoKind, 'general'>; name: string; notes: string; handle: string; owner: string; approval: boolean }[] = [
+  { kind: 'cafe', name: 'كافيه نسمة', notes: 'كافيه ومطبخ في التجمع الخامس. الباقة: 12 بوست + إدارة الرسايل', handle: 'nesma.cafe', owner: 'طارق حلمي', approval: true },
+  { kind: 'perfume', name: 'لمسة للعطور', notes: 'متجر عطور أونلاين بيشحن لكل المحافظات', handle: 'lamsa.perfumes', owner: 'داليا مراد', approval: false },
+  { kind: 'clinic', name: 'عيادة د. سلمى لطب الأسنان', notes: 'عيادة أسنان في مدينة نصر. الحجز بالواتساب بس', handle: 'dr.salma.dental', owner: 'د. سلمى عزت', approval: true },
+  { kind: 'academy', name: 'أكاديمية خطوة للغات', notes: 'كورسات إنجليزي وفرنساوي للكبار والأطفال', handle: 'khatwa.academy', owner: 'شريف وجدي', approval: false }
 ];
 
 const TEAM: { role: Role; name: string; clients: number[] }[] = [
@@ -116,7 +116,8 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
     await tx.quickReply.createMany({ data: QUICK_REPLIES.map(q => ({ ...q, agencyId: agency.id })) });
 
     for (const [ci, c] of CLIENTS.entries()) {
-      const client = await tx.client.create({ data: { agencyId: agency.id, name: c.name, notes: c.notes, createdAt: new Date(now.getTime() - (50 - ci * 7) * 86400_000) } });
+      const client = await tx.client.create({ data: { agencyId: agency.id, name: c.name, notes: c.notes, requiresClientApproval: c.approval, createdAt: new Date(now.getTime() - (50 - ci * 7) * 86400_000) } });
+      await tx.clientUser.create({ data: { agencyId: agency.id, clientId: client.id, name: c.owner, email: `owner${ci}.${tag}@demo.dosly.invalid`, lastLoginAt: ci % 2 ? null : minutes(60 * 20) } });
       const team = users.filter(u => u.clients.includes(ci));
       await tx.clientAssignment.createMany({ data: team.map(u => ({ clientId: client.id, userId: u.id })) });
       const moderator = team.find(u => u.role === 'MODERATOR')!;
@@ -153,6 +154,24 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
         })) });
       }
 
+      // History: closed conversations over the past four weeks, so the monthly report has real shape.
+      const answers = ['أهلًا بيك، تحت أمرك 🌿', 'أكيد، هبعتلك التفاصيل حالًا', 'متاح، تحب نحجزلك؟', 'ده السعر والتفاصيل كاملة 👇'];
+      for (let day = 27; day >= 1; day--) {
+        const count = Math.floor(Math.random() * 4) + (day % 7 === 4 ? 2 : 0); // busier weekends
+        for (let k = 0; k < count; k++) {
+          const start = minutes(day * 1440 - 9 * 60 - Math.floor(Math.random() * 12 * 60)); // between 9am and 9pm-ish
+          const wait = Math.random() < 0.85 ? 1 + Math.floor(Math.random() * 20) : 45 + Math.floor(Math.random() * 120);
+          const at = (min: number) => new Date(start.getTime() + min * 60_000);
+          const contact = await tx.contact.create({ data: { agencyId: agency.id, clientId: client.id, waNumberId: num.id, waId: demoPhone(), name: demoName() } });
+          const lines: [string, 'IN' | 'OUT', number][] = [[pick(DEMO_OPENERS[c.kind]), 'IN', 0], [pick(answers), 'OUT', wait], ['تمام، شكرًا 🙏', 'IN', wait + 3], ['العفو، نورتنا', 'OUT', wait + 5]];
+          const conv = await tx.conversation.create({ data: { agencyId: agency.id, clientId: client.id, waNumberId: num.id, contactId: contact.id, status: 'CLOSED', assigneeId: moderator.id, lastMessageAt: at(wait + 5), lastInboundAt: at(wait + 3), lastPreview: lines[3]![0], createdAt: start } });
+          await tx.message.createMany({ data: lines.map(([body, direction, min], li) => ({
+            agencyId: agency.id, conversationId: conv.id, direction, type: 'text', body, status: direction === 'IN' ? 'RECEIVED' as const : 'READ' as const,
+            waMessageId: `wamid.DEMOH.${tag}.${ci}.${day}.${k}.${li}`, sentById: direction === 'OUT' ? moderator.id : null, createdAt: at(min)
+          })) });
+        }
+      }
+
       // Posts: published last weeks, one partial failure, scheduled ahead, and a draft waiting for approval.
       const plan: { day: number; hour: number; status: 'PUBLISHED' | 'PARTIAL' | 'SCHEDULED' | 'DRAFT' }[] = [
         { day: -9 + ci, hour: 19, status: 'PUBLISHED' },
@@ -170,6 +189,14 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
           agencyId: agency.id, clientId: client.id, createdById: byWriter ? writer.id : manager.id,
           approvedById: p.status === 'DRAFT' ? null : manager.id, caption: src.caption,
           mediaUrls: src.image ? [`/demo/${src.image}.jpg`] : [], scheduledAt: at, status: p.status,
+          // Clients who approve posts: the first upcoming post waits for them, the next is approved,
+          // and at the clinic the owner already asked for a change.
+          ...(c.approval && p.status === 'SCHEDULED' ? (pi === 2
+            ? { clientReview: 'PENDING' as const }
+            : c.kind === 'clinic'
+              ? { clientReview: 'CHANGES_REQUESTED' as const, clientNote: 'ياريت نكتب المواعيد بالأرقام الكبيرة ونضيف رقم الحجز', reviewedAt: minutes(90) }
+              : { clientReview: 'APPROVED' as const, reviewedAt: minutes(60 * 20) }) : {}),
+          ...(c.approval && (p.status === 'PUBLISHED' || p.status === 'PARTIAL') ? { clientReview: 'APPROVED' as const, reviewedAt: new Date(at.getTime() - 86400_000) } : {}),
           createdAt: new Date(Math.min(at.getTime(), now.getTime()) - 2 * 86400_000)
         } });
         await tx.postTarget.createMany({ data: targets.map((t, ti) => {

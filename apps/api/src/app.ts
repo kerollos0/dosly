@@ -16,6 +16,7 @@ import { postRoutes } from './routes/posts.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { auditRoutes } from './routes/audit.js';
 import { demoRoutes } from './routes/demo.js';
+import { portalRoutes } from './routes/portal.js';
 
 export interface Queues {
   enqueueWebhook(eventId: string): Promise<void>;
@@ -71,6 +72,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   await app.register(inboxRoutes, { prefix: '/api' });
   await app.register(postRoutes, { prefix: '/api' });
   await app.register(auditRoutes, { prefix: '/api' });
+  await app.register(portalRoutes, { prefix: '/api/portal' });
   if (deps.env.DEMO_MODE === 'true') await app.register(demoRoutes, { prefix: '/api' });
   return app;
 }

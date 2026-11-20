@@ -30,8 +30,11 @@ export type Conversation = {
 export type Message = {
   id: string; direction: 'IN' | 'OUT'; type: string; body: string | null; status: string; error: string | null; createdAt: string; sentBy: { id: string; name: string } | null;
 };
+export type ClientReview = 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'CHANGES_REQUESTED';
+export const REVIEW_LABEL: Record<ClientReview, string> = { NOT_REQUIRED: '', PENDING: 'مستني موافقة العميل', APPROVED: 'العميل وافق', CHANGES_REQUESTED: 'العميل طلب تعديل' };
 export type Post = {
   id: string; clientId: string; caption: string; mediaUrls: string[]; scheduledAt: string | null; status: string; createdAt: string;
+  clientReview: ClientReview; clientNote: string | null;
   client: { name: string }; createdBy: { name: string };
   targets: { id: string; status: string; error: string | null; socialAccount: { platform: string; name: string } }[];
 };
