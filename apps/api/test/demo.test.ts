@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { demoFetch } from '@dosly/shared';
-import { deleteExpiredDemos } from '@dosly/core';
+import { deleteExpiredDemos, simulateConfirmPress } from '@dosly/core';
 import { db, makeApp, owner, reset, session } from './helpers.js';
 
 beforeEach(reset);
@@ -57,6 +57,28 @@ describe('demo mode', () => {
     const sent = await as('POST', `/api/conversations/${fresh.id}/messages`, { body: 'أهلًا بيك' });
     expect(sent.statusCode).toBe(201);
     expect(calls.demo).toEqual([sent.json().id]);
+  });
+
+  it('stocks two stores with a month of orders, and runs a new order through the WhatsApp confirmation', async () => {
+    const { app, calls } = await demoApp();
+    const as = await start(app);
+    expect((await as('GET', '/api/orders/counts')).json()).toMatchObject({ followUp: 6, waiting: 2, stores: 2 });
+    const stores = (await as('GET', '/api/stores')).json();
+    expect(stores.map((s: { kind: string }) => s.kind).sort()).toEqual(['EASYORDERS', 'SHOPIFY']);
+    expect(stores[0].usingTemplate).toBe('order_confirmation');
+    // a chat whose customer ordered shows the order beside it
+    const order = await db.storeOrder.findFirstOrThrow({ where: { confirm: 'CONFIRMED', confirmMessageId: { not: null } } });
+    const conv = await db.conversation.findFirstOrThrow({ where: { contactId: order.contactId! } });
+    expect((await as('GET', `/api/conversations/${conv.id}/orders`)).json().items.map((o: { id: string }) => o.id)).toContain(order.id);
+
+    const res = await as('POST', '/api/demo/order', { clientId: stores[0].clientId });
+    expect(res.statusCode).toBe(200);
+    const fresh = await db.storeOrder.findUniqueOrThrow({ where: { id: res.json().orderId } });
+    expect(fresh.confirm).toBe('SENT');
+    expect(calls.sends).toContain(fresh.confirmMessageId);
+    await db.message.update({ where: { id: fresh.confirmMessageId! }, data: { waMessageId: 'wamid.demo-confirm', status: 'SENT' } });
+    expect(await simulateConfirmPress(db, { publish() {} }, fresh.confirmMessageId!, {}, 0.1)).toBe('confirmed');
+    expect((await db.storeOrder.findUniqueOrThrow({ where: { id: fresh.id } })).confirm).toBe('CONFIRMED');
   });
 
   it('refuses demo tools on a real agency', async () => {

@@ -15,6 +15,7 @@ import { inboxRoutes } from './routes/inbox.js';
 import { mediaRoutes } from './routes/media.js';
 import { commentRoutes } from './routes/comments.js';
 import { adsRoutes } from './routes/ads.js';
+import { orderRoutes } from './routes/orders.js';
 import { todayRoutes } from './routes/today.js';
 import { postRoutes } from './routes/posts.js';
 import { webhookRoutes } from './routes/webhooks.js';
@@ -106,6 +107,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   await app.register(mediaRoutes, { prefix: '/api' });
   await app.register(commentRoutes, { prefix: '/api' });
   await app.register(adsRoutes, { prefix: '/api' });
+  await app.register(orderRoutes, { prefix: '/api' });
   await app.register(todayRoutes, { prefix: '/api' });
   await app.register(postRoutes, { prefix: '/api' });
   await app.register(auditRoutes, { prefix: '/api' });

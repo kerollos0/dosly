@@ -11,7 +11,8 @@ export const PERMISSIONS = {
   'posts:write': ['OWNER', 'MANAGER', 'WRITER'],
   'posts:approve': ['OWNER', 'MANAGER'],
   'audit:view': ['OWNER', 'MANAGER'],
-  'ads:view': ['OWNER', 'MANAGER']
+  'ads:view': ['OWNER', 'MANAGER'],
+  'orders:view': ['OWNER', 'MANAGER', 'MODERATOR'] // see store orders and follow up the ones nobody confirmed
 } as const satisfies Record<string, readonly RoleName[]>;
 
 export type Permission = keyof typeof PERMISSIONS;

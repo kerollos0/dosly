@@ -11,3 +11,5 @@ export * from './templates.js';
 export * from './social.js';
 export * from './demo-social.js';
 export * from './ads.js';
+export * from './orders.js';
+export * from './demo-orders.js';

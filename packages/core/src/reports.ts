@@ -1,6 +1,7 @@
 import type { Db } from '@dosly/db';
 import { dayIn } from '@dosly/shared';
 import { adsOverview, type AdsCampaignRow, type AdsCurrencyBlock } from './ads.js';
+import { roas, storeSales, type SalesBlock } from './orders.js';
 
 export type ClientReport = {
   from: string;
@@ -10,6 +11,11 @@ export type ClientReport = {
   daily: { day: string; inbound: number }[];
   /** Ad spend and results, when the client has ad accounts and the agency shows them in the portal. */
   ads: { currencies: AdsCurrencyBlock[]; campaigns: Pick<AdsCampaignRow, 'id' | 'name' | 'objective' | 'currency' | 'spendMinor' | 'result' | 'results' | 'costPerResultMinor' | 'purchaseValueMinor'>[] } | null;
+  /**
+   * Orders from the client's online store. `roas` and `campaigns` (sales per campaign) only come
+   * with the ads section, since they show ad spend.
+   */
+  store: { sales: SalesBlock[]; roas: { currency: string; spendMinor: number; soldValueMinor: number; roas: number | null }[]; campaigns: { id: string; name: string; currency: string; spendMinor: number; orders: number; sold: number; soldValueMinor: number; roas: number | null }[] } | null;
 };
 
 /**
@@ -58,12 +64,32 @@ export async function clientReport(db: Db, clientId: string, from: Date, to: Dat
   }
   const r = turns[0] ?? { turns: 0, answered: 0, median: null };
   const ads = opts.includeAds === false ? null : await clientAds(db, clientId, from, to, now);
+  const store = await clientStore(db, clientId, from, to, ads);
   return {
     from: from.toISOString(), to: to.toISOString(),
     posts: { published, failed, upcoming, awaitingYou, byPlatform },
     inbox: { newConversations, inbound, outbound, customerTurns: r.turns, answered: r.answered, medianFirstResponseSec: r.median === null ? null : Math.round(r.median), open },
     daily: daily.map(d => ({ day: d.day.toISOString().slice(0, 10), inbound: d.inbound })),
-    ads
+    ads,
+    store
+  };
+}
+
+async function clientStore(db: Db, clientId: string, from: Date, to: Date, ads: ClientReport['ads']): Promise<ClientReport['store']> {
+  const client = await db.client.findUnique({ where: { id: clientId }, select: { agencyId: true, _count: { select: { stores: true } } } });
+  if (!client?._count.stores) return null;
+  const s = await storeSales(db, { agencyId: client.agencyId, clientIds: [clientId], from, to });
+  if (!ads) return { sales: s.currencies, roas: [], campaigns: [] };
+  return {
+    sales: s.currencies,
+    roas: ads.currencies.map(c => {
+      const sold = s.currencies.find(x => x.currency === c.currency)?.soldValueMinor ?? 0;
+      return { currency: c.currency, spendMinor: c.totals.spendMinor, soldValueMinor: sold, roas: roas(sold, c.totals.spendMinor) };
+    }),
+    campaigns: ads.campaigns.filter(c => s.byCampaign[c.id]).map(c => {
+      const x = s.byCampaign[c.id]!;
+      return { id: c.id, name: c.name, currency: c.currency, spendMinor: c.spendMinor, orders: x.orders, sold: x.sold, soldValueMinor: x.soldValueMinor, roas: x.currency === c.currency ? roas(x.soldValueMinor, c.spendMinor) : null };
+    })
   };
 }
 

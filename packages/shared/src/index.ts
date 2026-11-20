@@ -11,3 +11,4 @@ export * from './wa-templates.js';
 export * from './meta-social.js';
 export * from './meta-ads.js';
 export * from './demo-ads.js';
+export * from './stores.js';

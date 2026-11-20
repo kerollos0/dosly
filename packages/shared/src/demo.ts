@@ -30,6 +30,11 @@ export function demoAsset(file: string): Buffer {
 
 /** Arabic sample templates every demo number has: approved ones of each kind, one in review and one rejected. */
 export const DEMO_TEMPLATES: MetaTemplate[] = [
+  { id: '9100000000006', name: 'order_confirmation', language: 'ar', status: 'APPROVED', category: 'UTILITY', parameter_format: 'POSITIONAL', components: [
+    { type: 'BODY', text: 'أهلاً {{1}} 👋 وصلنا طلبك رقم {{2}} بإجمالي {{3}} والدفع عند الاستلام. تأكد الطلب عشان نجهزه ونشحنه؟' },
+    { type: 'FOOTER', text: 'لو في أي تعديل ابعتلنا هنا' },
+    { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'تأكيد الطلب ✅' }, { type: 'QUICK_REPLY', text: 'إلغاء الطلب' }] }
+  ] },
   { id: '9100000000001', name: 'order_follow_up', language: 'ar', status: 'APPROVED', category: 'UTILITY', parameter_format: 'POSITIONAL', components: [
     { type: 'BODY', text: 'أهلاً {{1}}، بنطمن إن طلبك وصلك سليم. لو محتاج أي حاجة ابعتلنا هنا وهنرد عليك على طول.' },
     { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'وصل تمام' }, { type: 'QUICK_REPLY', text: 'عندي مشكلة' }] }
@@ -131,6 +136,14 @@ export function demoInboundPayload(o: { phoneNumberId: string; waId: string; nam
     message = { ...base, type: m.type, [m.type]: media };
   }
   return wrap(o.phoneNumberId, { contacts: [{ wa_id: o.waId, profile: { name: o.name } }], messages: [message] });
+}
+
+/** A customer pressing a quick reply button on a template we sent, shaped like Meta's `button` message. */
+export function demoButtonPayload(o: { phoneNumberId: string; waId: string; name?: string; text: string; payload: string; contextId: string; at?: Date }) {
+  const ts = String(Math.floor((o.at ?? new Date()).getTime() / 1000));
+  return wrap(o.phoneNumberId, { contacts: [{ wa_id: o.waId, profile: { name: o.name } }], messages: [{
+    from: o.waId, id: id('wamid.DEMOIN'), timestamp: ts, type: 'button', context: { from: o.phoneNumberId, id: o.contextId }, button: { text: o.text, payload: o.payload }
+  }] });
 }
 
 /** A WhatsApp webhook payload moving one outbound message to a new status. */

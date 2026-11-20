@@ -6,6 +6,7 @@ import { AlertTriangle, BellOff, CircleSlash, PauseCircle, RefreshCw, Wallet } f
 import { api, fetcher, type Client } from '@/lib/api';
 import { ACCOUNT_STATUS, alertText, CURRENCY_NAME, type AdAccount, type AdAlert, type AdAlertKind, type AdsOverview } from '@/lib/ads';
 import { AdKpis, CampaignTable, SpendBars, type AccountState } from '@/components/ads';
+import { SalesTiles } from '@/components/orders';
 import { Button, Empty, ErrorText, PageHeader, Select, cx } from '@/components/ui';
 
 const RANGES = [{ days: 7, label: 'آخر أسبوع' }, { days: 30, label: 'آخر شهر' }, { days: 90, label: 'آخر 3 شهور' }];
@@ -139,10 +140,17 @@ export default function AdsPage() {
           ) : (
             <>
               {data.currencies.length === 0 && <p className="text-muted">مفيش صرف في الفترة دي.</p>}
+              {!!data.sales?.stores && data.currencies.length > 0 && data.sales.currencies.length === 0 && <p className="text-sm text-muted">مفيش طلبات من المتجر في الفترة دي.</p>}
               {data.currencies.map(b => (
                 <section key={b.currency} aria-label={`الحسابات ${CURRENCY_NAME[b.currency] ?? b.currency}`} className="flex flex-col gap-3">
                   {data.currencies.length > 1 && <h2 className="font-display text-[20px] font-semibold">الحسابات {CURRENCY_NAME[b.currency] ?? <span dir="ltr">{b.currency}</span>}</h2>}
                   <AdKpis block={b} />
+                  {b.sales && (
+                    <div className="flex flex-col gap-2">
+                      <h3 className="font-semibold">المبيعات الحقيقية من المتجر <span className="text-sm font-normal text-muted">(طلبات اتأكدت أو اتشحنت، من غير اللي اتلغى)</span></h3>
+                      <SalesTiles s={b.sales} roas={b.roas} />
+                    </div>
+                  )}
                   <SpendBars block={b} />
                 </section>
               ))}

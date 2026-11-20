@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { can, dayIn, addDays } from '@dosly/shared';
-import { PUBLISHABLE_REVIEW } from '@dosly/core';
+import { FOLLOW_UP_WHERE, PUBLISHABLE_REVIEW } from '@dosly/core';
 import { requireAuth, visibleClientIds } from '../auth.js';
 
 const TZ = 'Africa/Cairo';
@@ -35,7 +35,7 @@ export const todayRoutes: FastifyPluginAsync = async app => {
 
     // A conversation waits when the customer wrote last and nobody has opened it since.
     const waiting = { ...scope, status: { not: 'CLOSED' as const }, unreadCount: { gt: 0 } };
-    const [waitingCount, mineCount, oldestWaiting, comments, drafts, changes, changesCount, failed, toClient, publishingToday, adAlerts] = await Promise.all([
+    const [waitingCount, mineCount, oldestWaiting, comments, drafts, changes, changesCount, failed, toClient, publishingToday, adAlerts, ordersToCall] = await Promise.all([
       reply ? db.conversation.count({ where: waiting }) : null,
       reply ? db.conversation.count({ where: { ...waiting, assigneeId: auth.userId } }) : null,
       reply ? db.conversation.findFirst({ where: waiting, orderBy: { lastInboundAt: 'asc' }, select: { lastInboundAt: true } }) : null,
@@ -51,7 +51,9 @@ export const todayRoutes: FastifyPluginAsync = async app => {
       write ? db.post.count({ where: { ...scope, status: 'SCHEDULED', clientReview: 'PENDING' } }) : null,
       // Only what will really go out: a post waiting on the client, or sent back by them, does not publish.
       db.post.count({ where: { ...scope, status: 'SCHEDULED', clientReview: { in: [...PUBLISHABLE_REVIEW] }, scheduledAt: { gte: start, lt: end } } }),
-      can(auth.role, 'ads:view') ? db.adAlert.count({ where: { ...scope, resolvedAt: null } }) : null
+      can(auth.role, 'ads:view') ? db.adAlert.count({ where: { ...scope, resolvedAt: null } }) : null,
+      // Cash-on-delivery orders nobody confirmed on WhatsApp: a moderator calls the customer.
+      can(auth.role, 'orders:view') ? db.storeOrder.count({ where: { ...scope, ...FOLLOW_UP_WHERE } }) : null
     ]);
     return {
       inbox: reply ? { waiting: waitingCount!, mine: mineCount!, oldestWaitingAt: oldestWaiting?.lastInboundAt ?? null } : null,
@@ -64,7 +66,8 @@ export const todayRoutes: FastifyPluginAsync = async app => {
         waitingForClient: toClient,
         publishingToday
       },
-      adAlerts
+      adAlerts,
+      ordersToCall
     };
   });
 };

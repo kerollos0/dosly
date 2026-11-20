@@ -41,6 +41,8 @@ model Agency {
   socialAccounts SocialAccount[]
   adAccounts  AdAccount[]
   adAlerts    AdAlert[]
+  stores      StoreConnection[]
+  orders      StoreOrder[]
   posts       Post[]
   auditLogs   AuditLog[]
   invites     Invite[]
@@ -113,6 +115,7 @@ model User {
   sentComments SocialComment[]
   createdPosts Post[] @relation("postAuthor")
   approvedPosts Post[] @relation("postApprover")
+  orderFollowUps StoreOrder[] @relation("orderFollowUp")
 }
 
 model Membership {
@@ -171,6 +174,8 @@ model Client {
   socialComments SocialComment[]
   adAccounts  AdAccount[]
   adAlerts    AdAlert[]
+  stores      StoreConnection[]
+  orders      StoreOrder[]
   requiresClientApproval Boolean @default(false) // posts wait for the client's OK in the portal before publishing
   showAdsInPortal Boolean @default(false) // the client sees ad spend and results in the portal report (the agency opts in)
 
@@ -249,6 +254,7 @@ model WhatsAppNumber {
   contacts       Contact[]
   templates      WaTemplate[]
   templatesSyncedAt DateTime?
+  stores         StoreConnection[]
 
   @@index([agencyId])
 }
@@ -264,15 +270,19 @@ model Contact {
   username        String?  // Instagram @handle
   avatarUrl       String?
   name            String?
+  adId            String?  // Click-to-WhatsApp: the Meta ad the customer first came from (webhook referral.source_id)
+  adReferredAt    DateTime?
   createdAt       DateTime @default(now())
   agency          Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
   client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   waNumber        WhatsAppNumber? @relation(fields: [waNumberId], references: [id], onDelete: Cascade)
+  orders          StoreOrder[]
   socialAccount   SocialAccount?  @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
   conversations   Conversation[]
 
   @@unique([waNumberId, waId])
   @@unique([socialAccountId, externalId])
+  @@index([clientId, waId])
 }
 
 /** Where a conversation happens. Comments live in SocialComment, not here. */
@@ -544,7 +554,8 @@ model AuditLog {
 
 model WebhookEvent {
   id          String   @id @default(cuid())
-  source      String
+  source      String   // meta, demo, store
+  dedupeKey   String?  @unique // the sender's delivery id (Shopify X-Shopify-Webhook-Id), so a retried delivery is stored once
   payload     Json
   receivedAt  DateTime @default(now())
   processedAt DateTime?
@@ -579,6 +590,7 @@ model AdAccount {
   client           Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   campaigns        AdCampaign[]
   alerts           AdAlert[]
+  ads              AdAd[]
 
   @@unique([agencyId, externalId])
   @@index([clientId])
@@ -605,6 +617,8 @@ model AdCampaign {
   adAccount           AdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
   insights            AdInsightDaily[]
   alerts              AdAlert[]
+  ads                 AdAd[]
+  orders              StoreOrder[]
 
   @@unique([adAccountId, externalId])
 }
@@ -654,4 +668,131 @@ model AdAlert {
 
   @@unique([adAccountId, kind, objectKey])
   @@index([agencyId, resolvedAt])
+}
+
+/** Which ad an ad id belongs to, so a Click-to-WhatsApp customer (who brings an ad id) counts for the right campaign. */
+model AdAd {
+  adAccountId String
+  externalId  String   // Meta ad id
+  campaignId  String
+  adAccount   AdAccount  @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  campaign    AdCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@id([adAccountId, externalId])
+  @@index([externalId])
+}
+
+enum StoreKind {
+  EASYORDERS
+  SHOPIFY
+}
+
+/**
+ * A client's online store. The store sends its orders to /webhooks/store/{hookId}; the request is
+ * checked with the store's secret (EasyOrders: the `secret` header; Shopify: an HMAC of the body).
+ */
+model StoreConnection {
+  id               String    @id @default(cuid())
+  agencyId         String
+  clientId         String
+  kind             StoreKind
+  name             String
+  hookId           String    @unique // random, in the webhook URL: routes a delivery to this store
+  secretEnc        String?   // AES-256-GCM; null until the owner pastes the secret the store shows
+  currency         String    @default("EGP")
+  status           ChannelStatus @default(CONNECTED)
+  lastOrderAt      DateTime?
+  lastError        String?
+  autoConfirm      Boolean   @default(true) // cash-on-delivery orders get a WhatsApp confirmation
+  waNumberId       String?   // the number that sends confirmations; null = the client's first number
+  confirmTemplate  String?   // template name; null = the first approved one that fits
+  confirmWaitMin   Int       @default(120) // no answer after this long: a moderator calls
+  createdAt        DateTime  @default(now())
+  agency           Agency    @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client           Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  waNumber         WhatsAppNumber? @relation(fields: [waNumberId], references: [id], onDelete: SetNull)
+  orders           StoreOrder[]
+
+  @@index([agencyId])
+  @@index([clientId])
+}
+
+/** Where an order is, in words every store shares. The store's own word is kept in rawStatus. */
+enum OrderStatus {
+  PENDING     // new, not confirmed yet
+  CONFIRMED
+  PROCESSING  // being prepared
+  SHIPPED     // with the courier
+  DELIVERED
+  CANCELLED
+  RETURNED
+  FAILED
+}
+
+/** The WhatsApp confirmation of a cash-on-delivery order. */
+enum ConfirmState {
+  NONE       // not needed: paid online, or not a new order
+  SENT       // waiting for the customer to press a button
+  CONFIRMED  // the customer (or the agency on the phone, or the store) confirmed it
+  DECLINED   // the customer pressed cancel
+  NO_ANSWER  // no answer in time: a moderator calls
+  NOT_SENT   // could not send (no number, no approved template, bad phone, or Meta refused)
+}
+
+model StoreOrder {
+  id              String    @id @default(cuid())
+  agencyId        String
+  clientId        String
+  storeId         String
+  externalId      String
+  number          String    // what the store shows: #1001, or the start of an EasyOrders id
+  status          OrderStatus @default(PENDING)
+  rawStatus       String?
+  cod             Boolean   @default(true)
+  paymentMethod   String?
+  currency        String
+  totalMinor      BigInt    @default(0) // piastres / cents
+  shippingMinor   BigInt    @default(0)
+  customerName    String?
+  phone           String?   // as the customer typed it
+  waId            String?   // the phone as a WhatsApp id (E.164 without +), for matching the inbox
+  city            String?
+  address         String?
+  items           Json      // [{ name, variant, qty, priceMinor }]
+  trackingNumber  String?
+  trackingCompany String?
+  trackingUrl     String?
+  shipmentStatus  String?   // Shopify fulfillment shipment_status: in_transit, out_for_delivery, delivered, ...
+  utmSource       String?
+  utmCampaign     String?
+  fbclid          String?
+  campaignId      String?   // the ad campaign this sale came from, when we can tell
+  attribution     String?   // utm | whatsapp_ad
+  contactId       String?
+  confirm         ConfirmState @default(NONE)
+  confirmMessageId String?  // our template message
+  confirmSentAt   DateTime?
+  confirmedAt     DateTime?
+  confirmedBy     String?   // customer | agent | store
+  confirmError    String?
+  followUpDoneAt  DateTime? // a moderator dealt with a flagged order
+  followUpById    String?
+  placedAt        DateTime
+  sourceUpdatedAt DateTime? // the store's own updated_at: an older delivery never overwrites a newer one
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  agency          Agency    @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client          Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  store           StoreConnection @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign        AdCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  contact         Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  followUpBy      User?     @relation("orderFollowUp", fields: [followUpById], references: [id], onDelete: SetNull)
+
+  @@unique([storeId, externalId])
+  @@index([clientId, placedAt])
+  @@index([agencyId, confirm])
+  @@index([confirm, confirmSentAt])
+  @@index([contactId])
+  @@index([confirmMessageId])
+  @@index([clientId, waId])
 }

@@ -3,6 +3,7 @@ import { parseWebhook } from '@dosly/shared';
 import type { Publisher } from './events.js';
 import { previewText } from './media.js';
 import { applyTemplateUpdates } from './templates.js';
+import { applyConfirmReply } from './orders.js';
 
 const STATUS_RANK = { QUEUED: 0, SENT: 1, DELIVERED: 2, READ: 3, FAILED: 4, RECEIVED: 0 } as const;
 const MAP = { sent: 'SENT', delivered: 'DELIVERED', read: 'READ', failed: 'FAILED' } as const;
@@ -14,6 +15,8 @@ const MAP = { sent: 'SENT', delivered: 'DELIVERED', read: 'READ', failed: 'FAILE
 export type WebhookHooks = {
   /** Called for each new inbound attachment; the worker downloads it from Meta. */
   onMedia?: (messageId: string) => Promise<void>;
+  /** Queues an outbound message for the worker (the thank-you after an order confirmation). */
+  onSend?: (messageId: string) => Promise<void>;
 };
 
 export async function processWhatsAppWebhook(db: Db, payload: unknown, pub: Publisher, hooks: WebhookHooks = {}): Promise<{ messages: number; statuses: number; templates: number; unknownNumbers: string[] }> {
@@ -28,8 +31,12 @@ export async function processWhatsAppWebhook(db: Db, payload: unknown, pub: Publ
 
     const contact = await db.contact.upsert({
       where: { waNumberId_waId: { waNumberId: num.id, waId: m.waId } },
-      create: { agencyId: num.agencyId, clientId: num.clientId, waNumberId: num.id, waId: m.waId, name: m.contactName },
-      update: m.contactName ? { name: m.contactName } : {}
+      create: { agencyId: num.agencyId, clientId: num.clientId, waNumberId: num.id, waId: m.waId, name: m.contactName, ...(m.referral ? { adId: m.referral.sourceId.slice(0, 64), adReferredAt: m.timestamp } : {}) },
+      update: {
+        ...(m.contactName ? { name: m.contactName } : {}),
+        // Click-to-WhatsApp: remember the latest ad the customer came from, so their orders count for it.
+        ...(m.referral ? { adId: m.referral.sourceId.slice(0, 64), adReferredAt: m.timestamp } : {})
+      }
     });
     const preview = previewText(m.type, m.body, m.media?.voice);
     const conv = await db.conversation.upsert({
@@ -46,6 +53,11 @@ export async function processWhatsAppWebhook(db: Db, payload: unknown, pub: Publ
     stored++;
     await pub.publish(num.agencyId, { type: 'message.new', conversationId: conv.id, clientId: num.clientId, messageId: msg.id, direction: 'IN' });
     if (m.media) await hooks.onMedia?.(msg.id);
+    // Orders placed with this phone before the customer ever wrote are linked to the chat now.
+    await db.storeOrder.updateMany({ where: { clientId: num.clientId, waId: m.waId, contactId: null }, data: { contactId: contact.id } });
+    if (m.buttonPayload || m.contextId) {
+      await applyConfirmReply({ db, pub, onSend: hooks.onSend }, { agencyId: num.agencyId, clientId: num.clientId, conversationId: conv.id, contactId: contact.id, buttonPayload: m.buttonPayload, contextId: m.contextId, body: m.body, at: m.timestamp });
+    }
   }
 
   let updated = 0;

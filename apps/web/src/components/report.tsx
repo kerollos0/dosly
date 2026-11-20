@@ -6,7 +6,9 @@ import { count } from '@/lib/when';
 import { fetcher } from '@/lib/api';
 import { Button } from './ui';
 import { AdKpis, adsSentence, CampaignTable, SpendBars } from './ads';
-import { CURRENCY_NAME, dayLabel, type AdCurrencyBlock, type ReportCampaign } from '@/lib/ads';
+import { CURRENCY_NAME, dayLabel, money, type AdCurrencyBlock, type ReportCampaign } from '@/lib/ads';
+import type { SalesBlock } from '@/lib/orders';
+import { roasLine, SalesTiles } from './orders';
 
 export type Report = {
   from: string; to: string;
@@ -14,7 +16,46 @@ export type Report = {
   inbox: { newConversations: number; inbound: number; outbound: number; customerTurns: number; answered: number; medianFirstResponseSec: number | null; open: number };
   daily: { day: string; inbound: number }[];
   ads: { currencies: AdCurrencyBlock[]; campaigns: ReportCampaign[] } | null;
+  store?: {
+    sales: SalesBlock[];
+    roas: { currency: string; spendMinor: number; soldValueMinor: number; roas: number | null }[];
+    campaigns: { id: string; name: string; currency: string; spendMinor: number; orders: number; sold: number; soldValueMinor: number; roas: number | null }[];
+  } | null;
 };
+
+/** "30 orders, 24 sold for 31,200 pounds" and the return on ads, as two plain sentences. */
+function storeSentences(st: NonNullable<Report['store']>, period: string) {
+  return st.sales.flatMap(s => {
+    const r = st.roas.find(x => x.currency === s.currency);
+    return [
+      `جالك ${count(s.orders, 'طلب واحد', 'طلبين', 'طلبات', 'طلب')} من المتجر ${period}، واتباع منهم ${count(s.sold, 'طلب واحد', 'طلبين', 'طلبات', 'طلب')} بـ ${money(s.soldValueMinor, s.currency, true)}.`,
+      ...(r?.roas !== null && r?.roas !== undefined ? [`${roasLine(r.roas, s.currency)}.`] : [])
+    ];
+  });
+}
+
+function CampaignSales({ rows }: { rows: NonNullable<Report['store']>['campaigns'] }) {
+  return (
+    <div tabIndex={0} role="region" aria-label="مبيعات كل حملة، بيتحرك يمين وشمال على الموبايل" className="overflow-x-auto rounded-[var(--radius-md)] border border-line bg-surface focus-visible:outline-2 focus-visible:outline-primary">
+      <table className="w-full min-w-[480px] text-sm">
+        <caption className="sr-only">المبيعات اللي جت من كل حملة</caption>
+        <thead className="bg-surface-2 text-muted"><tr>
+          <th scope="col" className="p-3 text-start font-semibold">الحملة</th><th scope="col" className="p-3 text-start font-semibold">الصرف</th>
+          <th scope="col" className="p-3 text-start font-semibold">طلبات اتباعت</th><th scope="col" className="p-3 text-start font-semibold">المبيعات</th><th scope="col" className="p-3 text-start font-semibold">الرجوع</th>
+        </tr></thead>
+        <tbody>{rows.map(c => (
+          <tr key={c.id} className="border-t border-line">
+            <th scope="row" className="p-3 text-start font-semibold">{c.name}</th>
+            <td className="p-3 tabular-nums">{money(c.spendMinor, c.currency, true)}</td>
+            <td className="p-3 tabular-nums">{nf.format(c.sold)} <span className="text-xs text-muted">من {nf.format(c.orders)}</span></td>
+            <td className="p-3 font-semibold tabular-nums">{money(c.soldValueMinor, c.currency, true)}</td>
+            <td className="p-3 tabular-nums">{c.roas === null ? '—' : `${nf.format(c.roas)}×`}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  );
+}
 
 const MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
 const nf = new Intl.NumberFormat('ar-EG-u-nu-latn');
@@ -155,6 +196,7 @@ export function MonthlyReport({ path, title, simple = false }: { path: string; t
             <H2 className="text-sm font-semibold text-muted">الخلاصة</H2>
             {summary(r, isCurrent).map(t => <p key={t}>{t}</p>)}
             {r.ads?.currencies.map(b => <p key={b.currency}>{adsSentence(b, period)}</p>)}
+            {r.store && storeSentences(r.store, period).map(t => <p key={t}>{t}</p>)}
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))]">
             <Tile label="بوستات اتنشرت" value={nf.format(r.posts.published)} sub={simple ? undefined : `فيسبوك ${nf.format(r.posts.byPlatform.FACEBOOK_PAGE)} · إنستجرام ${nf.format(r.posts.byPlatform.INSTAGRAM)}`} />
@@ -177,6 +219,22 @@ export function MonthlyReport({ path, title, simple = false }: { path: string; t
                 : <><H3 className="font-semibold">كل حملة جابت إيه</H3><CampaignTable rows={r.ads.campaigns} compact /></>)}
             </section>
           ) : <p className="text-muted">مفيش صرف على الإعلانات في الشهر ده.</p>)}
+          {r.store && (
+            <section aria-labelledby="rep-store-h" className="flex flex-col gap-3">
+              <H2 id="rep-store-h" className="font-display text-xl font-bold">المبيعات من المتجر</H2>
+              {r.store.sales.length === 0 && <p className="text-muted">مفيش طلبات في الشهر ده.</p>}
+              {r.store.sales.map(s => (
+                <div key={s.currency} className="flex flex-col gap-3">
+                  {r.store!.sales.length > 1 && <H3 className="font-semibold">{CURRENCY_NAME[s.currency] ?? s.currency}</H3>}
+                  <SalesTiles s={s} roas={r.store!.roas.find(x => x.currency === s.currency)?.roas ?? undefined} client={simple} />
+                </div>
+              ))}
+              <p className="text-xs text-muted">«مبيعات حقيقية» يعني طلبات اتأكدت أو اتشحنت أو اتسلمت، من غير اللي اتلغى أو رجع.</p>
+              {r.store.campaigns.length > 0 && (simple
+                ? <Fold title="كل حملة باعت قد إيه"><CampaignSales rows={r.store.campaigns} /></Fold>
+                : <><H3 className="font-semibold">كل حملة باعت قد إيه</H3><CampaignSales rows={r.store.campaigns} /></>)}
+            </section>
+          )}
         </>
       )}
     </section>

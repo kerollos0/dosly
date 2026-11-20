@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
-import { CalendarDays, Menu, Sun, X, History, LogOut, Megaphone, MessageCircle, MessagesSquare, Plug, Users, Briefcase } from 'lucide-react';
+import { CalendarDays, Menu, Sun, X, History, LogOut, Megaphone, MessageCircle, MessagesSquare, Plug, Users, Briefcase, ShoppingBag } from 'lucide-react';
 import { api, ApiError, can, fetcher, ROLE_LABEL, type Me } from '@/lib/api';
 import { cx } from '@/components/ui';
 import { MeContext } from '@/lib/me';
@@ -16,6 +16,8 @@ import { AccountBanner } from '@/components/account-banner';
 const NAV = [
   { href: '/today', label: 'النهارده', icon: Sun, show: () => true },
   { href: '/inbox', label: 'المحادثات', icon: MessageCircle, show: () => true },
+  // Moderators see it once a store is connected; managers always, to find where to connect one.
+  { href: '/orders', label: 'الطلبات', icon: ShoppingBag, show: (m: Me, stores?: number) => can.manage(m.role) || (can.reply(m.role) && !!stores) },
   { href: '/comments', label: 'الكومنتات', icon: MessagesSquare, show: () => true },
   { href: '/calendar', label: 'البوستات', icon: CalendarDays, show: () => true },
   { href: '/ads', label: 'الإعلانات', icon: Megaphone, show: (m: Me) => can.manage(m.role) },
@@ -23,7 +25,7 @@ const NAV = [
   { href: '/channels', label: 'القنوات', icon: Plug, show: (m: Me) => can.manage(m.role) },
   { href: '/team', label: 'الفريق', icon: Users, show: () => true },
   { href: '/activity', label: 'سجل النشاط', icon: History, show: (m: Me) => can.manage(m.role) }
-];
+] satisfies { href: string; label: string; icon: typeof Sun; show: (m: Me, stores?: number) => boolean }[];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -33,6 +35,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useNotifications(me?.user.id);
   const { data: comments } = useSWR<{ openCount: number }>(me ? '/comments?limit=1' : null, fetcher as never, { refreshInterval: 60_000 });
   const { data: adAlerts } = useSWR<{ count: number }>(me && can.manage(me.role) ? '/ads/alerts' : null, fetcher as never, { refreshInterval: 5 * 60_000 });
+  const { data: orders } = useSWR<{ followUp: number; stores: number }>(me && can.reply(me.role) ? '/orders/counts' : null, fetcher as never, { refreshInterval: 5 * 60_000 });
 
   // On a phone: four pages in a bottom bar where the thumb is, the rest behind "المزيد".
   const [more, setMore] = useState(false);
@@ -40,8 +43,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => { if (error instanceof ApiError && error.status === 401) router.replace('/login'); }, [error, router]);
   if (!me) return <div className="grid h-full place-items-center text-muted">{error && !(error instanceof ApiError && error.status === 401) ? 'مش قادرين نوصل للسيرفر. جرّب تاني بعد شوية.' : 'بيحمّل…'}</div>;
 
-  const items = NAV.filter(n => n.show(me));
-  const badge = (href: string, active: boolean) => href === '/ads' && adAlerts?.count
+  const items = NAV.filter(n => n.show(me, orders?.stores));
+  const badge = (href: string, active: boolean) => href === '/orders' && orders?.followUp
+    ? <span className={cx('num rounded-full px-1.5 text-xs font-semibold', active ? 'bg-on-primary/20' : 'bg-warning text-white')}>{orders.followUp}<span className="sr-only"> محتاجة مكالمة</span></span>
+    : href === '/ads' && adAlerts?.count
     ? <span className={cx('num rounded-full px-1.5 text-xs font-semibold', active ? 'bg-on-primary/20' : 'bg-danger text-white')}>{adAlerts.count}<span className="sr-only"> تنبيهات</span></span>
     : href === '/comments' && comments?.openCount
       ? <span className={cx('num rounded-full px-1.5 text-xs font-semibold', active ? 'bg-on-primary/20' : 'bg-sun text-[#0F1B2D]')}>{comments.openCount}<span className="sr-only"> محتاجة رد</span></span>

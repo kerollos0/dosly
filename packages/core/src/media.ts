@@ -188,7 +188,7 @@ export function pendingInboundMedia(db: Db, olderThanMs = 2 * 60_000) {
 
 /** What the API stores in Message.payload for the worker. */
 export type OutboundPayload = {
-  kind: 'image' | 'audio' | 'video' | 'document' | 'template';
+  kind: 'image' | 'audio' | 'video' | 'document' | 'template' | 'text';
   convert?: 'voice' | 'jpeg' | 'mp4' | 'm4a' | null;
   converted?: boolean;
   derived?: boolean;
@@ -242,7 +242,7 @@ export async function sendQueuedMessage(deps: MediaDeps, messageId: string): Pro
     // Messenger / Instagram: the file goes with the message itself. Past 24h the HUMAN_AGENT tag allows 7 days.
     const w = socialWindow(conv.lastInboundAt);
     if (w === 'closed') throw new PermanentMediaError('عدّى أكتر من 7 أيام على آخر رسالة من العميل، فميتا مش هتسمح بالرد');
-    if (!mediaKeyNow || payload.kind === 'template' || !conv.contact.externalId) throw new PermanentMediaError('الرسالة دي مش مدعومة هنا');
+    if (!mediaKeyNow || payload.kind === 'template' || payload.kind === 'text' || !conv.contact.externalId) throw new PermanentMediaError('الرسالة دي مش مدعومة هنا');
     const tag = w === 'human_agent' ? 'HUMAN_AGENT' as const : undefined;
     const recipientId = conv.contact.externalId;
     try {
@@ -292,6 +292,8 @@ export async function sendQueuedMessage(deps: MediaDeps, messageId: string): Pro
         t.components = [{ type: 'header', parameters: [{ type: kind, [kind]: { id: payload.metaMediaId, ...(kind === 'document' && msg.fileName ? { filename: msg.fileName } : {}) } }] }, ...(t.components ?? [])];
       }
       message = { type: 'template', template: t };
+    } else if (payload.kind === 'text') {
+      message = { type: 'text', text: { preview_url: false, body: msg.body ?? '' } };
     } else {
       const k = payload.kind;
       const media: Record<string, unknown> = { id: payload.metaMediaId };

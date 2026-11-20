@@ -26,6 +26,12 @@ export type InboundMessage = {
   type: string;
   body?: string;
   media?: InboundMedia;
+  /** Quick reply button presses: the payload we put on the button (template) or the reply id (interactive). */
+  buttonPayload?: string;
+  /** The message this one answers (a button press points at the template it came from). */
+  contextId?: string;
+  /** Click-to-WhatsApp: the ad the customer tapped to start chatting. */
+  referral?: { sourceId: string; sourceType?: string; ctwaClid?: string };
 };
 
 /** The media object Meta puts on image, audio, video, document and sticker messages. */
@@ -89,7 +95,10 @@ export function parseWebhook(payload: Json): { messages: InboundMessage[]; statu
           timestamp: new Date(Number(m.timestamp) * 1000),
           type: m.type,
           body: bodyOf(m),
-          media: media?.id ? { id: String(media.id), mime: media.mime_type, sha256: media.sha256, fileName: media.filename, voice: media.voice === true, animated: media.animated === true } : undefined
+          media: media?.id ? { id: String(media.id), mime: media.mime_type, sha256: media.sha256, fileName: media.filename, voice: media.voice === true, animated: media.animated === true } : undefined,
+          buttonPayload: m.button?.payload ?? m.interactive?.button_reply?.id ?? undefined,
+          contextId: m.context?.id ?? undefined,
+          referral: m.referral?.source_id && (m.referral.source_type ?? 'ad') === 'ad' ? { sourceId: String(m.referral.source_id), sourceType: m.referral.source_type, ctwaClid: m.referral.ctwa_clid } : undefined
         });
       }
       for (const s of v.statuses ?? []) {

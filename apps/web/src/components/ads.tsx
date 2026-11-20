@@ -1,5 +1,6 @@
 'use client';
 import { useState, type KeyboardEvent } from 'react';
+import { count } from '@/lib/when';
 import { CAMPAIGN_STATUS, clientCount, CLIENT_COST_LABEL, COST_LABEL, countLabel, currencyWord, dayLabel, money, nf, OBJECTIVE_LABEL, percent, RESULT_TITLE, type AdCampaign, type AdCurrencyBlock, type ReportCampaign, type ResultKind } from '@/lib/ads';
 import { cx, Pill } from './ui';
 
@@ -112,6 +113,8 @@ export type AccountState = { label: string; tone: 'bad' | 'neutral'; stale?: boo
  * `compact` is the client report: no status (it is today's, not the month's) and no budget.
  */
 export function CampaignTable({ rows, clientName, accountState, compact = false }: { rows: (AdCampaign | ReportCampaign)[]; clientName?: (id: string) => string; accountState?: (adAccountId: string) => AccountState; compact?: boolean }) {
+  // Real store sales per campaign, when a store is connected and some orders came from these campaigns.
+  const showStore = !compact && rows.some(r => (r as AdCampaign).store);
   return (
     <div tabIndex={0} role="region" aria-label="جدول الحملات، بيتحرك يمين وشمال على الموبايل" className="overflow-x-auto rounded-[var(--radius-md)] border border-line bg-surface focus-visible:outline-2 focus-visible:outline-primary">
       <table className={cx('w-full text-sm', compact ? 'min-w-[480px]' : 'min-w-[680px]')}>
@@ -124,6 +127,7 @@ export function CampaignTable({ rows, clientName, accountState, compact = false 
             <th scope="col" className="p-3 text-start font-semibold">الصرف</th>
             <th scope="col" className="p-3 text-start font-semibold">النتيجة</th>
             <th scope="col" className="p-3 text-start font-semibold">التكلفة</th>
+            {showStore && <th scope="col" className="p-3 text-start font-semibold">مبيعات المتجر</th>}
           </tr>
         </thead>
         <tbody>
@@ -145,6 +149,12 @@ export function CampaignTable({ rows, clientName, accountState, compact = false 
                 <td className="p-3 font-semibold tabular-nums">{money(r.spendMinor, r.currency, compact)}</td>
                 <td className="p-3">{r.results ? (compact ? clientCount : countLabel)(r.results, r.result) : '—'}</td>
                 <td className="p-3 tabular-nums">{r.costPerResultMinor === null ? '—' : <>{money(r.costPerResultMinor, r.currency, compact)} <span className="text-xs text-muted">{(compact ? CLIENT_COST_LABEL : COST_LABEL)[r.result]}</span></>}</td>
+                {showStore && (
+                  <td className="p-3 tabular-nums">{full.store?.sold ? <>
+                    <span className="font-semibold">{money(full.store.soldValueMinor, full.store.currency, true)}</span>
+                    <span className="block text-xs text-muted">{count(full.store.sold, 'طلب واحد اتباع', 'طلبين اتباعوا', 'طلبات اتباعت', 'طلب اتباع')}{full.store.roas !== null ? ` · الرجوع ${nf.format(full.store.roas)}×` : ''}</span>
+                  </> : '—'}</td>
+                )}
               </tr>
             );
           })}

@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { encrypt, hashPassword, newTotpSecret, randomToken, ROLES } from '@dosly/shared';
-import { syncAdAccount, seedDemoAgency, simulateComment, simulateInbound, simulateSocialMessage } from '@dosly/core';
+import { syncAdAccount, seedDemoAgency, simulateComment, simulateInbound, simulateOrder, simulateSocialMessage } from '@dosly/core';
 import { audit, createSession, HttpError, requireAuth, SESSION_COOKIE } from '../auth.js';
 import { createPortalSession } from '../portal-auth.js';
 import { createAdminSession } from '../admin-auth.js';
@@ -70,6 +70,15 @@ export const demoRoutes: FastifyPluginAsync = async app => {
       : await simulateSocialMessage(db, realtime, { agencyId: auth.agencyId, clientId: o.clientId, platform: o.platform, media: o.media }, { onMedia: id => app.deps.queues.fetchMedia(id) });
     if (!ok) throw new HttpError(404, 'مفيش صفحة أو بوست منشور للعميل ده', 'not_found');
     return { ok: true };
+  });
+
+  // A new cash-on-delivery order on one of the demo stores; its WhatsApp confirmation goes out like a real one.
+  app.post('/demo/order', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async req => {
+    const { auth } = await sandboxOf(req);
+    const { clientId } = z.object({ clientId: z.string().optional() }).parse(req.body ?? {});
+    const orderId = await simulateOrder({ db, pub: realtime, onSend: id => app.deps.queues.sendMessage(id) }, { agencyId: auth.agencyId, clientId });
+    if (!orderId) throw new HttpError(404, 'مفيش متجر مربوط للعميل ده', 'not_found');
+    return { ok: true, orderId };
   });
 
   // Opens the client portal as that client's owner, in the same browser, without a sign-in link.

@@ -45,6 +45,8 @@ const accountOf = (id: string) => ACCOUNTS[Number(id.slice(-1)) % ACCOUNTS.lengt
 /** Demo campaign ids are the account id plus the campaign key, so the demo seed can refer to them. */
 export const demoCampaignId = (accountId: string, key: string) => `${accountId}${key}`;
 const campaignId = demoCampaignId;
+/** Two ads per demo campaign; Click-to-WhatsApp demo customers carry one of these ids. */
+export const demoAdId = (accountId: string, key: string, n: number) => `${accountId}${key}0${n}`;
 
 function campaignJson(accountId: string, c: DemoCampaign, now: Date) {
   const today = dayIn(TZ, now);
@@ -97,10 +99,10 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
   'x-ad-account-usage': JSON.stringify({ acc_id_util_pct: 3, reset_time_duration: 0, ads_api_access_tier: 'standard_access' })
 } });
 
-/** Answers GET act_<id>, act_<id>/campaigns and act_<id>/insights. Returns null for anything else. */
+/** Answers GET act_<id>, act_<id>/campaigns, act_<id>/ads and act_<id>/insights. Returns null for anything else. */
 export function demoAdsGraph(url: URL, now = new Date()): Response | null {
   const path = url.pathname.replace(/^\/v[\d.]+\//, '');
-  const m = path.match(/^act_(\d+)(?:\/(campaigns|insights))?$/);
+  const m = path.match(/^act_(\d+)(?:\/(campaigns|insights|ads))?$/);
   if (!m) return null;
   const [, accountId, edge] = m as unknown as [string, string, string | undefined];
   const acc = accountOf(accountId);
@@ -116,6 +118,7 @@ export function demoAdsGraph(url: URL, now = new Date()): Response | null {
     paging: { cursors: { before: String(offset), after: String(offset + PAGE) }, ...(offset + PAGE < rows.length ? { next: 'https://graph.facebook.com/demo-next' } : {}) }
   });
   if (edge === 'campaigns') return page(acc.campaigns.map(c => campaignJson(accountId, c, now)));
+  if (edge === 'ads') return page(acc.campaigns.flatMap(c => [1, 2].map(n => ({ id: demoAdId(accountId, c.key, n), campaign_id: campaignId(accountId, c.key) }))));
   const range = JSON.parse(url.searchParams.get('time_range') ?? 'null') as { since: string; until: string } | null;
   const until = range?.until ?? dayIn(TZ, now);
   const since = range?.since ?? addDays(until, -6);

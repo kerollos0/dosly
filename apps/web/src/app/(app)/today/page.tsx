@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import useSWR from 'swr';
-import { AlertTriangle, CalendarCheck, CalendarDays, CheckCircle2, FileClock, Megaphone, MessageCircle, MessagesSquare, PencilLine, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, CalendarCheck, CalendarDays, CheckCircle2, FileClock, Megaphone, MessageCircle, MessagesSquare, PencilLine, PhoneCall, type LucideIcon } from 'lucide-react';
 import { fetcher } from '@/lib/api';
 import { useMe } from '@/lib/me';
 import { cx, ErrorText } from '@/components/ui';
@@ -15,6 +15,7 @@ type Today = {
     changes: { id: string; scheduledAt: string | null; note: string | null; client: string }[];
   };
   adAlerts: number | null;
+  ordersToCall?: number | null;
 };
 
 type Task = { key: string; icon: LucideIcon; tone: 'bad' | 'warn' | 'info'; title: string; sub?: string; href: string; action: string; extra?: React.ReactNode };
@@ -49,6 +50,11 @@ export default function TodayPage() {
       key: 'inbox', icon: MessageCircle, tone: 'bad', href: '/inbox', action: 'رد على العملاء',
       title: `${count(i.waiting, 'عميل واحد مستني', 'عميلين مستنيين', 'عملاء مستنيين', 'عميل مستني')} رد`,
       sub: [i.mine ? count(i.mine, 'واحد منهم بتاعك', 'اتنين منهم بتوعك', 'منهم بتوعك', 'منهم بتوعك') : null, i.oldestWaitingAt ? `أقدم واحد مستني ${ago(i.oldestWaitingAt)}` : null].filter(Boolean).join('، ') || undefined
+    });
+    if (d.ordersToCall) tasks.push({
+      key: 'orders', icon: PhoneCall, tone: 'bad', href: '/orders', action: 'كلّم العملاء',
+      title: `${count(d.ordersToCall, 'طلب واحد محتاج', 'طلبين محتاجين', 'طلبات محتاجة', 'طلب محتاج')} مكالمة تأكيد`,
+      sub: 'طلبات دفع عند الاستلام العميل مأكدهاش على واتساب. المكالمة دلوقتي بتنقذ البيعة.'
     });
     if (d.comments) tasks.push({ key: 'comments', icon: MessagesSquare, tone: 'warn', href: '/comments', action: 'شوف الكومنتات', title: `${count(d.comments, 'كومنت واحد مستني', 'كومنتين مستنيين', 'كومنتات مستنية', 'كومنت مستني')} رد` });
     if (p.changesRequested) tasks.push({

@@ -4,6 +4,7 @@ import {
   decrypt, type AdsUsage, type GraphAdAccount, type GraphCampaign, type GraphInsight, type InsightRow, type ResultKind
 } from '@dosly/shared';
 import type { Publisher } from './events.js';
+import { reattributeOrders } from './orders.js';
 
 /**
  * Ads sync: copies an ad account's health, its campaigns and their daily numbers from the
@@ -117,6 +118,17 @@ export async function syncAdAccount(deps: AdsDeps, adAccountId: string, now = ne
       });
       ids.set(r.campaign_id, row.id);
     }
+    // Ad ids to campaigns, so a customer who came from a Click-to-WhatsApp ad counts for its campaign.
+    // Best effort: a failure here must not lose the spend numbers.
+    const adRows: { externalId: string; campaignId: string }[] = [];
+    try {
+      const adList = await adsGraphAll<{ id: string; campaign_id?: string }>(`act_${acc.externalId}/ads?fields=id,campaign_id&limit=500`, token, deps.fetch, 20);
+      track(adList.usage);
+      for (const a of adList.data) { const cid = a.campaign_id ? ids.get(a.campaign_id) : undefined; if (cid) adRows.push({ externalId: String(a.id), campaignId: cid }); }
+    } catch (e) {
+      if (e instanceof AdsGraphError && (e.auth || e.throttled)) throw e;
+    }
+
     const rows: Prisma.AdInsightDailyCreateManyInput[] = [];
     for (const r of insights) {
       const campaignId = r.campaign_id ? ids.get(r.campaign_id) : undefined;
@@ -129,10 +141,13 @@ export async function syncAdAccount(deps: AdsDeps, adAccountId: string, now = ne
       await tx.adAccount.update({ where: { id: acc.id }, data: { ...fields, lastSyncAt: now, lastError: null, insightsFrom: acc.insightsFrom && acc.insightsFrom < since ? acc.insightsFrom : since } });
       await tx.adInsightDaily.deleteMany({ where: { campaign: { adAccountId: acc.id }, date: { gte: since, lte: today } } });
       if (rows.length) await tx.adInsightDaily.createMany({ data: rows, skipDuplicates: true });
+      // An ad never moves to another campaign on Meta, so known ones are left as they are.
+      if (adRows.length) await tx.adAd.createMany({ data: adRows.map(a => ({ ...a, adAccountId: acc.id })), skipDuplicates: true });
       return { campaigns: camps.data.length, days: new Set(rows.map(r => r.date)).size };
     }, { timeout: 60_000 });
 
     const opened = await evaluateAlerts(db, pub, acc.id, now);
+    await reattributeOrders(db, acc.clientId, now);
     // Close to Meta's limit: leave the account alone until the window resets.
     if (usage.pct >= 75 || usage.waitSec > 0) {
       await db.adAccount.update({ where: { id: acc.id }, data: { throttledUntil: new Date(now.getTime() + Math.max(usage.waitSec, 15 * 60) * 1000) } });

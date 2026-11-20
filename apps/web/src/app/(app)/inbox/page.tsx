@@ -14,6 +14,7 @@ import { ACCEPT, MAX_UPLOAD, uploadWithProgress } from '@/components/inbox/uploa
 import { useVoiceRecorder } from '@/components/inbox/voice-recorder';
 import { setOpenConversation, useNotifyPrefs } from '@/lib/notify';
 import { ChannelBadge, CHANNEL_LABEL } from '@/components/channel-badge';
+import { OrdersButton, OrdersPanel, useCustomerOrders } from '@/components/inbox/orders-panel';
 
 const CHANNELS = [{ v: '', l: 'كل القنوات' }, { v: 'WHATSAPP', l: 'واتساب' }, { v: 'MESSENGER', l: 'ماسنجر' }, { v: 'INSTAGRAM', l: 'إنستجرام' }] as const;
 const MB = 1024 * 1024;
@@ -220,8 +221,11 @@ function Thread({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
   }
 
   const canReply = can.reply(me.role);
+  const { data: orders } = useCustomerOrders(conv.id, canReply);
+  const [ordersOpen, setOrdersOpen] = useState(false);
   return (
-    <section aria-label="المحادثة" className="relative flex min-h-0 flex-col"
+    <div className="flex min-h-0 min-w-0">
+    <section aria-label="المحادثة" className="relative flex min-h-0 min-w-0 flex-1 flex-col"
       onDragOver={e => { if (canReply && conv.windowOpen && e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragging(true); } }}
       onDragLeave={e => { if (e.currentTarget === e.target) setDragging(false); }}
       onDrop={e => { e.preventDefault(); setDragging(false); if (canReply && conv.windowOpen) pick(e.dataTransfer.files[0]); }}>
@@ -237,7 +241,8 @@ function Thread({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
           </p>
         </div>
         {canReply && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <OrdersButton data={orders} onOpen={() => setOrdersOpen(true)} />
             <Select aria-label="المسؤول" className="h-9 w-44 px-2" defaultValue={conv.assignee?.id ?? ''} onChange={e => update({ assigneeId: e.target.value || null })}>
               <option value="">من غير مسؤول</option>
               {team?.members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -362,5 +367,7 @@ function Thread({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
         </div>
       )}
     </section>
+    <OrdersPanel data={orders} open={ordersOpen} onClose={() => setOrdersOpen(false)} />
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { accountFields, adsOverview } from '@dosly/core';
+import { accountFields, adsOverview, dayStart, storeSales, withSales } from '@dosly/core';
 import { AD_ACCOUNT_FIELDS, adsGraph, AdsGraphError, addDays, connectAdAccountSchema, dayIn, encrypt, normalizeAdAccountId, type GraphAdAccount } from '@dosly/shared';
 import { assertClientAccess, audit, HttpError, requirePermission, visibleClientIds } from '../auth.js';
 
@@ -93,8 +93,10 @@ export const adsRoutes: FastifyPluginAsync = async app => {
     const to = q.to ?? accounts.reduce((max, a) => { const d = dayIn(a.timezoneName); return d > max ? d : max; }, dayIn(TZ));
     const from = q.from ?? addDays(to, -(q.days - 1));
     const overview = await adsOverview(db, { agencyId: auth.agencyId, clientIds, from, to });
+    // Store orders on the same Cairo days: the money that really came in next to what was spent.
+    const sales = await storeSales(db, { agencyId: auth.agencyId, clientIds, from: dayStart(from, TZ), to: dayStart(addDays(to, 1), TZ) });
     const synced = accounts.map(a => a.lastSyncAt?.getTime() ?? 0).filter(Boolean);
-    return { ...overview, accounts: accounts.length, accountsWithErrors: accounts.filter(a => a.status === 'ERROR').length, syncedAt: synced.length ? new Date(Math.min(...synced)).toISOString() : null };
+    return { ...withSales(overview, sales), accounts: accounts.length, accountsWithErrors: accounts.filter(a => a.status === 'ERROR').length, syncedAt: synced.length ? new Date(Math.min(...synced)).toISOString() : null };
   });
 
   app.get('/ads/alerts', async req => {

@@ -4,7 +4,7 @@ import { pino } from 'pino';
 import { z } from 'zod';
 import { createDb, Prisma } from '@dosly/db';
 import { demoFetch, loadKey, publishFacebookPost, publishInstagramPost } from '@dosly/shared';
-import { adAccountsDue, syncAdAccount, DEMO_TTL_HOURS, deleteExpiredDemos, fetchInboundMedia, localMediaStore, markMediaFailed, markSendFailed, overduePosts, pendingInboundMedia, PermanentMediaError, processMetaWebhook, publishPost, sendQueuedMessage, simulateComment, simulateInbound, simulateSocialMessage, simulateReply, simulateStatus, syncTemplates, type MediaDeps, type Publishers, type Publisher } from '@dosly/core';
+import { adAccountsDue, processStoreWebhook, simulateConfirmPress, simulateOrder, sweepConfirmations, type StoreWebhookPayload, syncAdAccount, DEMO_TTL_HOURS, deleteExpiredDemos, fetchInboundMedia, localMediaStore, markMediaFailed, markSendFailed, overduePosts, pendingInboundMedia, PermanentMediaError, processMetaWebhook, publishPost, sendQueuedMessage, simulateComment, simulateInbound, simulateSocialMessage, simulateReply, simulateStatus, syncTemplates, type MediaDeps, type Publishers, type Publisher } from '@dosly/core';
 import type { Job } from 'bullmq';
 
 const env = z.object({
@@ -39,14 +39,22 @@ const mediaQueue = new Queue('media', { connection });
 const jobOpts = (attempts: number, delay: number) => ({ attempts, backoff: { type: 'exponential' as const, delay }, removeOnComplete: 1000, removeOnFail: 5000 });
 const fetchMediaLater = async (messageId: string) => { await mediaQueue.add('fetch', { messageId }, { jobId: `fetch-${messageId}`, ...jobOpts(6, 5000) }); };
 // key + fetch: names of new Messenger/Instagram customers; store: removing attachments a customer unsent.
-const hooks = { onMedia: fetchMediaLater, key, fetch: graphFetch, store, appId: env.META_APP_ID };
+const sendLater = async (messageId: string) => { await mediaQueue.add('send', { messageId }, { jobId: `send-${messageId}`, ...jobOpts(4, 3000) }); };
+// onSend: the thank-you after a customer confirms an order on WhatsApp.
+const hooks = { onMedia: fetchMediaLater, onSend: sendLater, key, fetch: graphFetch, store, appId: env.META_APP_ID };
+const orderDeps = { db, pub, onSend: sendLater };
 
 const webhooks = new Worker('webhooks', async job => {
   const event = await db.webhookEvent.findUnique({ where: { id: job.data.eventId } });
   if (!event || event.processedAt) return;
   try {
-    const res = await processMetaWebhook(db, event.payload, pub, hooks);
-    if (res.unknown.length) log.warn({ ids: res.unknown }, 'Webhook for numbers or pages not connected to any agency');
+    if (event.source === 'store') {
+      const r = await processStoreWebhook(orderDeps, event.payload as unknown as StoreWebhookPayload);
+      if (r.result.startsWith('ignored') || r.result === 'unknown order') log.info({ eventId: event.id, result: r.result }, 'Store webhook not applied');
+    } else {
+      const res = await processMetaWebhook(db, event.payload, pub, hooks);
+      if (res.unknown.length) log.warn({ ids: res.unknown }, 'Webhook for numbers or pages not connected to any agency');
+    }
     await db.webhookEvent.update({ where: { id: event.id }, data: { processedAt: new Date(), error: null } });
   } catch (err) {
     await db.webhookEvent.update({ where: { id: event.id }, data: { error: String((err as Error).message).slice(0, 1000) } });
@@ -90,7 +98,11 @@ const media = new Worker('media', async job => {
         const o = { removeOnComplete: 100, removeOnFail: 100 };
         await demoQueue.add('status', { messageId: job.data.messageId, status: 'delivered' }, { ...o, delay: 1500 });
         await demoQueue.add('status', { messageId: job.data.messageId, status: 'read' }, { ...o, delay: 4000 });
-        if (Math.random() < 0.5) await demoQueue.add('reply', { messageId: job.data.messageId }, { ...o, delay: 9000 + Math.random() * 8000 });
+        const sent = await db.message.findUnique({ where: { id: job.data.messageId }, select: { type: true, payload: true } });
+        const orderId = (sent?.payload as { orderId?: string } | null)?.orderId;
+        // An order confirmation gets a button press; the thank-you after it gets no reply.
+        if (orderId && sent?.type === 'template') await demoQueue.add('press', { messageId: job.data.messageId }, { ...o, delay: 7000 + Math.random() * 8000 });
+        else if (!orderId && Math.random() < 0.5) await demoQueue.add('reply', { messageId: job.data.messageId }, { ...o, delay: 9000 + Math.random() * 8000 });
       }
       return r;
     }, e => markSendFailed(db, pub, job.data.messageId, e));
@@ -127,8 +139,15 @@ const ads = new Worker('ads', async job => {
 }, { connection, concurrency: 2 }); // a few accounts at a time keeps us well under Meta's per-app limits
 await adsQueue.upsertJobScheduler('ads-tick', { every: 5 * 60_000 }, { name: 'tick' });
 
-const workers = [webhooks, posts, media, ads];
-const queues = [sweeper, mediaQueue, adsQueue];
+// Orders: every minute, confirmations nobody answered in time (or that Meta refused) go to the moderators.
+const ordersQueue = new Queue('orders', { connection });
+const orders = new Worker('orders', async job => {
+  if (job.name === 'sweep') return sweepConfirmations(db, pub);
+}, { connection, concurrency: 1 });
+await ordersQueue.upsertJobScheduler('orders-sweep', { every: 60_000 }, { name: 'sweep' });
+
+const workers = [webhooks, posts, media, ads, orders];
+const queues = [sweeper, mediaQueue, adsQueue, ordersQueue];
 if (demoQueue) {
   queues.push(demoQueue);
   await demoQueue.upsertJobScheduler('demo-cleanup', { every: 10 * 60_000 }, { name: 'cleanup' });
@@ -138,6 +157,7 @@ if (demoQueue) {
     switch (job.name) {
       case 'status': return simulateStatus(db, pub, job.data.messageId, job.data.status);
       case 'reply': return simulateReply(db, pub, job.data.messageId, hooks);
+      case 'press': return simulateConfirmPress(db, pub, job.data.messageId, hooks);
       case 'cleanup': return { deleted: await deleteExpiredDemos(db, new Date(), store) };
       case 'ambient': {
         // Sandboxes opened in the last two hours get an occasional new customer, so the inbox feels alive.
@@ -149,6 +169,7 @@ if (demoQueue) {
           if (r < 0.35) await simulateInbound(db, pub, { agencyId: a.id, media: 'random' }, hooks);
           else if (r < 0.6) await simulateComment(db, pub, { agencyId: a.id });
           else if (r < 0.72) await simulateSocialMessage(db, pub, { agencyId: a.id, media: Math.random() < 0.2 ? 'photo' : undefined }, hooks);
+          else if (r < 0.82) await simulateOrder(orderDeps, { agencyId: a.id });
         }
         return { agencies: active.length };
       }

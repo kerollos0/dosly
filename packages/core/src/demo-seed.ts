@@ -3,6 +3,7 @@ import { DEMO_MEDIA, DEMO_TEMPLATES, demoCampaignId, encrypt, hashPassword, rand
 import { DEMO_OPENERS, demoName, demoPhone, pick, type DemoKind } from './demo.js';
 import { previewText } from './media.js';
 import { seedSocial, type SeedSocialInput } from './demo-social.js';
+import { seedDemoOrders } from './demo-orders.js';
 import type { MediaStore } from './media-store.js';
 
 /**
@@ -145,6 +146,7 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
 
       // Conversations: a spread of fresh unanswered ones, ongoing ones and old closed ones.
       const ages = [4, 25, 70, 180, 60 * 30]; // minutes since the last message; the last is outside the 24h window
+      const chats: { id: string; waId: string; name: string; conversationId: string }[] = [];
       for (const [si, script] of SCRIPTS[c.kind].entries()) {
         const names = ['مريم حسن', 'كريم عادل', 'هبة منصور', 'يوسف جرجس', 'نور الشريف', 'مينا رمزي', 'ياسمين فؤاد', 'عمر إبراهيم'];
         const contact = await tx.contact.create({ data: { agencyId: agency.id, clientId: client.id, waNumberId: num.id, waId: demoPhone(), name: names[(si + ci * 2) % names.length] } });
@@ -160,6 +162,7 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
           unreadCount: awaiting && end < 120 ? script.slice(script.map(l => l[0]).lastIndexOf('out') + 1).length : 0,
           lastMessageAt: times[times.length - 1]!, lastInboundAt: times[lastIn]!, lastPreview: last[1].slice(0, 140), createdAt: times[0]!
         } });
+        chats.push({ id: contact.id, waId: contact.waId!, name: contact.name!, conversationId: conv.id });
         await tx.message.createMany({ data: script.map(([dir, body], k) => ({
           agencyId: agency.id, conversationId: conv.id, direction: dir === 'in' ? 'IN' as const : 'OUT' as const, type: 'text', body,
           waMessageId: `wamid.DEMO${dir === 'in' ? 'IN' : ''}.${tag}.${ci}.${si}.${k}`,
@@ -255,6 +258,17 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
       adAccountIds.push(ad.id);
       // The clinic's lead form was running at the last check and was paused this morning: the first sync shows a "stopped" alert.
       if (c.kind === 'clinic') await tx.adCampaign.create({ data: { adAccountId: ad.id, externalId: demoCampaignId(adExternal, '2'), name: 'فورم | استشارة تقويم مجانية', status: 'ACTIVE', effectiveStatus: 'ACTIVE', checkedStatus: 'DELIVERING', objective: 'OUTCOME_LEADS' } });
+
+      // The perfume shop sells on EasyOrders and the cafe takes cake orders on Shopify.
+      if (c.kind === 'perfume' || c.kind === 'cafe') {
+        const storeKind = c.kind === 'perfume' ? 'EASYORDERS' as const : 'SHOPIFY' as const;
+        const store = await tx.storeConnection.create({ data: {
+          agencyId: agency.id, clientId: client.id, kind: storeKind, name: c.kind === 'perfume' ? 'متجر لمسة (EasyOrders)' : 'نسمة أونلاين (Shopify)',
+          hookId: `demo${tag}${ci}${randomToken().replace(/[^A-Za-z0-9]/g, '').slice(0, 16)}`, secretEnc: encrypt(`demo-secret-${tag}-${ci}`, key),
+          waNumberId: num.id, lastOrderAt: minutes(12), createdAt: new Date(now.getTime() - 35 * 86400_000)
+        } });
+        await seedDemoOrders(tx, { agencyId: agency.id, clientId: client.id, storeId: store.id, kind: c.kind, storeKind, adExternalId: adExternal, waNumberId: num.id, tag, ci, contacts: chats, now });
+      }
 
       await seedSocial(tx, { agencyId: agency.id, clientId: client.id, kind: c.kind, moderatorId: moderator.id, now, fb, ig, posts: published });
     }

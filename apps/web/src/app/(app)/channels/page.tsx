@@ -4,6 +4,7 @@ import useSWR from 'swr';
 import { api, fetcher, type Client } from '@/lib/api';
 import { ACCOUNT_STATUS, CURRENCY_NAME, type AdAccount } from '@/lib/ads';
 import { Button, ErrorText, Field, Input, PageHeader, Pill, Select } from '@/components/ui';
+import { StoresSection } from '@/components/stores';
 
 type Channels = {
   whatsapp: { id: string; clientId: string; displayPhone: string; verifiedName: string | null; status: string }[];
@@ -44,7 +45,7 @@ export default function ChannelsPage() {
 
   return (
     <>
-      <PageHeader title="القنوات" sub="اربط أرقام واتساب وصفحات فيسبوك وحسابات إنستجرام والحسابات الإعلانية لكل عميل. التوكنز بتتخزن متشفرة ومش بتظهر تاني." />
+      <PageHeader title="القنوات" sub="اربط أرقام واتساب وصفحات فيسبوك وحسابات إنستجرام والحسابات الإعلانية والمتاجر لكل عميل. التوكنز بتتخزن متشفرة ومش بتظهر تاني." />
       <div className="grid gap-8 p-8 lg:grid-cols-2 max-md:p-4">
         <section className="flex flex-col gap-4">
           <h2 className="font-display text-[22px] font-semibold">واتساب</h2>
@@ -116,6 +117,7 @@ export default function ChannelsPage() {
             <div className="flex flex-col gap-2 lg:col-span-3"><ErrorText error={adError} /><Button disabled={busy} className="self-start">اربط الحساب</Button></div>
           </form>
         </section>
+        <StoresSection clients={clients} />
       </div>
     </>
   );

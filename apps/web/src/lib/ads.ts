@@ -6,12 +6,16 @@ export type AdCampaign = AdTotals & {
   id: string; name: string; objective: string | null; status: string; effectiveStatus: string; delivering: boolean; currency: string; clientId: string; adAccountId: string;
   dailyBudgetMinor: number | null; lifetimeBudgetMinor: number | null; budgetRemainingMinor: number | null; stopTime: string | null;
   result: ResultKind; results: number; costPerResultMinor: number | null;
+  /** Store orders matched to this campaign (utm_campaign or a Click-to-WhatsApp chat). */
+  store?: { orders: number; sold: number; soldValueMinor: number; currency: string; roas: number | null } | null;
 };
 /** The slimmer campaign rows the client report carries. */
 export type ReportCampaign = Pick<AdCampaign, 'id' | 'name' | 'objective' | 'currency' | 'spendMinor' | 'result' | 'results' | 'costPerResultMinor' | 'purchaseValueMinor'>;
 export type AdResultBlock = { spendMinor: number; results: number; costPerResultMinor: number | null; valueMinor: number };
 export type AdCurrencyBlock = { currency: string; totals: AdTotals; byResult: Partial<Record<ResultKind, AdResultBlock>>; daily: { day: string; spendMinor: number }[] };
-export type AdsOverview = { from: string; to: string; currencies: AdCurrencyBlock[]; campaigns: AdCampaign[]; accounts: number; accountsWithErrors: number; syncedAt: string | null };
+/** The ads page also gets the store's real sales in the same currency, and the real ROAS. */
+export type AdCurrencyWithSales = AdCurrencyBlock & { sales?: import('./orders').SalesBlock | null; roas?: number | null };
+export type AdsOverview = { from: string; to: string; currencies: AdCurrencyWithSales[]; campaigns: AdCampaign[]; accounts: number; accountsWithErrors: number; syncedAt: string | null; sales?: import('./orders').StoreSales };
 export type AdAccount = {
   id: string; clientId: string; externalId: string; name: string; currency: string; timezoneName: string; accountStatus: number; disableReason: number;
   spendCapMinor: number | null; amountSpentMinor: number | null; status: 'CONNECTED' | 'DISCONNECTED' | 'ERROR'; lastError: string | null; lastSyncAt: string | null; throttledUntil: string | null;

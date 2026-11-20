@@ -80,3 +80,61 @@ describe('totp', () => {
     expect(verifyTotp(secret, 'abc', now)).toBe(false);
   });
 });
+
+import { amountMinor, buildConfirmationTemplate, confirmAnswer, confirmFromText, fitsConfirmation, parseEasyOrders, parseShopify, phoneToWaId, utmFrom, verifyShopifyHmac, DEMO_TEMPLATES } from '../src/index.js';
+import { createHmac as hmac } from 'node:crypto';
+
+describe('store orders', () => {
+  it('writes Egyptian phones as WhatsApp ids however they are typed', () => {
+    for (const p of ['01012345678', '010 1234 5678', '+20 10 1234 5678', '00201012345678', '201012345678', '1012345678', '٠١٠١٢٣٤٥٦٧٨', '+20 010 1234 5678']) expect(phoneToWaId(p)).toBe('201012345678');
+    expect(phoneToWaId('0123')).toBeNull();
+    expect(phoneToWaId('')).toBeNull();
+    expect(phoneToWaId('+966 50 123 4567')).toBe('966501234567');
+  });
+  it('reads money without float drift', () => {
+    expect(amountMinor('149.50')).toBe(14950);
+    expect(amountMinor(0.1 + 0.2)).toBe(30);
+    expect(amountMinor('1,250')).toBe(125000);
+    expect(amountMinor('12.999')).toBe(1299);
+    expect(amountMinor('abc')).toBe(0);
+  });
+  it('parses EasyOrders orders and status updates', () => {
+    const ev = parseEasyOrders({ id: 'abc-123', total_cost: '1260', shipping_cost: 60, status: 'pending', payment_method: 'cod', full_name: 'مريم', phone: '01012345678', cart_items: [{ price: 1200, quantity: 1, product: { name: 'عود' } }] });
+    expect(ev).toMatchObject({ kind: 'order', order: { externalId: 'abc-123', totalMinor: 126000, cod: true, status: 'PENDING', items: [{ name: 'عود', qty: 1, priceMinor: 120000 }] } });
+    expect(parseEasyOrders({ event_type: 'order-status-update', order_id: 'abc-123', new_status: 'Cancelled' })).toMatchObject({ kind: 'status', status: 'CANCELLED' });
+    expect(parseEasyOrders({ event_type: 'product-updated', id: 'p1' }).kind).toBe('ignored');
+  });
+  it('parses Shopify orders, COD gateways, utm and shipment status', () => {
+    const ev = parseShopify('orders/create', { id: 1, name: '#1001', total_price: '99.90', payment_gateway_names: ['Cash on Delivery (COD)'], landing_site: '/?utm_campaign=123&utm_source=fb', fulfillments: [{ shipment_status: 'delivered', tracking_number: 'T1' }] });
+    expect(ev).toMatchObject({ kind: 'order', order: { number: '#1001', totalMinor: 9990, cod: true, utmCampaign: '123', utmSource: 'fb', status: 'DELIVERED' } });
+    expect(parseShopify('orders/create', { id: 2, payment_gateway_names: ['shopify_payments'], financial_status: 'paid' })).toMatchObject({ order: { cod: false, status: 'CONFIRMED' } });
+    expect(parseShopify('orders/updated', { id: 3, cancelled_at: '2026-01-01T00:00:00Z' })).toMatchObject({ order: { status: 'CANCELLED' } });
+    expect(parseShopify('products/update', {}).kind).toBe('ignored');
+    expect(utmFrom('not a url %%')).toMatchObject({ utmCampaign: null });
+  });
+  it('verifies Shopify signatures over the raw body', () => {
+    const raw = '{"id":1}';
+    const sig = hmac('sha256', 's3cret').update(raw).digest('base64');
+    expect(verifyShopifyHmac(raw, sig, 's3cret')).toBe(true);
+    expect(verifyShopifyHmac(raw + ' ', sig, 's3cret')).toBe(false);
+    expect(verifyShopifyHmac(raw, undefined, 's3cret')).toBe(false);
+  });
+  it('builds the confirmation template with order payloads on both buttons', () => {
+    const t = DEMO_TEMPLATES.find(x => x.name === 'order_confirmation')!;
+    const like = { name: t.name, language: t.language, parameterFormat: 'POSITIONAL', components: t.components };
+    expect(fitsConfirmation(like)).toBe(true);
+    expect(fitsConfirmation({ ...like, components: DEMO_TEMPLATES.find(x => x.name === 'monthly_offer')!.components, parameterFormat: 'NAMED' })).toBe(false); // image header
+    const b = buildConfirmationTemplate(like, 'ord1', { customer_name: 'مريم\nحسن', order_number: '#1', total: '100 جنيه' });
+    expect(b.template.components).toEqual([
+      { type: 'body', parameters: [{ type: 'text', text: 'مريم حسن' }, { type: 'text', text: '#1' }, { type: 'text', text: '100 جنيه' }] },
+      { type: 'button', sub_type: 'quick_reply', index: '0', parameters: [{ type: 'payload', payload: 'dosly:confirm:ord1' }] },
+      { type: 'button', sub_type: 'quick_reply', index: '1', parameters: [{ type: 'payload', payload: 'dosly:cancel:ord1' }] }
+    ]);
+    expect(b.rendered).toContain('مريم حسن');
+    expect(confirmAnswer('dosly:cancel:ord1')).toEqual({ orderId: 'ord1', yes: false });
+    expect(confirmAnswer('other')).toBeNull();
+    expect(confirmFromText('تأكيد الطلب ✅')).toBe(true);
+    expect(confirmFromText('إلغاء الطلب')).toBe(false);
+    expect(confirmFromText('شكرا')).toBeNull();
+  });
+});

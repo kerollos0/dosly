@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
 import useSWRInfinite from 'swr/infinite';
+import { useLiveRefresh } from '@/lib/realtime';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { Check, EyeOff, Eye, Lock, MessageCircleReply, RotateCcw, Send, Trash2 } from 'lucide-react';
@@ -33,6 +34,7 @@ export default function CommentsPage() {
     (i, prev: Page | null) => (i === 0 ? `/comments?${base}` : prev?.nextCursor ? `/comments?${base}&cursor=${prev.nextCursor}` : null),
     fetcher as never, { refreshInterval: 60_000 }
   );
+  useLiveRefresh('comment', () => mutate());
   const loaded = data?.flatMap(p => p.items) ?? [];
   const missing = Object.values(editing).filter(t => !loaded.some(x => x.id === t.id));
   const items = [...loaded, ...missing];
