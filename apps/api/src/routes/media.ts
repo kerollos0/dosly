@@ -5,7 +5,7 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { Message, Prisma } from '@dosly/db';
 import { classifyUpload, mediaKey, previewText, tempPath, UploadRejected, type OutboundPayload } from '@dosly/core';
-import { buildTemplateMessage, isWindowOpen, paramProblem, renderTemplate, templateShape, WA_MEDIA_LIMITS } from '@dosly/shared';
+import { buildTemplateMessage, isWindowOpen, replyWindow, socialTextProblem, SOCIAL_IMAGE_MAX, SOCIAL_MEDIA_MAX, WINDOW_CLOSED_AR, paramProblem, renderTemplate, templateShape, WA_MEDIA_LIMITS } from '@dosly/shared';
 import type { AuthContext } from '../auth.js';
 import { assertClientAccess, HttpError, requireAuth, requirePermission } from '../auth.js';
 
@@ -34,6 +34,13 @@ export const mediaRoutes: FastifyPluginAsync = async app => {
     if (!conv) throw new HttpError(404, 'المحادثة مش موجودة', 'not_found');
     await assertClientAccess(db, auth, conv.clientId);
     return conv;
+  }
+  /** Templates exist only on WhatsApp. */
+  async function waConversationFor(auth: AuthContext, id: string) {
+    const conv = await conversationFor(auth, id);
+    const { waNumber, waNumberId } = conv;
+    if (!waNumber || !waNumberId || !conv.contact.waId) throw new HttpError(400, 'رسايل Template موجودة في واتساب بس', 'not_whatsapp');
+    return { ...conv, waNumber, waNumberId, contact: { ...conv.contact, waId: conv.contact.waId } };
   }
   async function messageFor(auth: AuthContext, id: string) {
     const msg = await db.message.findFirst({ where: { id, agencyId: auth.agencyId }, include: { conversation: { select: { clientId: true } } } });
@@ -86,7 +93,8 @@ export const mediaRoutes: FastifyPluginAsync = async app => {
   app.post<{ Params: { id: string } }>('/conversations/:id/attachments', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
     const auth = requirePermission(req, 'inbox:reply');
     const conv = await conversationFor(auth, req.params.id);
-    if (!isWindowOpen(conv.lastInboundAt)) throw new HttpError(409, 'عدّى أكتر من 24 ساعة على آخر رسالة من العميل. واتساب بيسمح بس برسايل Template دلوقتي.', 'window_closed');
+    if (replyWindow(conv.channel, conv.lastInboundAt) === 'closed') throw new HttpError(409, WINDOW_CLOSED_AR[conv.channel], 'window_closed');
+    const social = conv.channel !== 'WHATSAPP';
     const file = await req.file({ limits: { fileSize: MAX_UPLOAD, files: 1, fields: 5 } });
     if (!file) throw new HttpError(400, 'مفيش ملف', 'no_file');
     const field = (n: string) => { const f = file.fields[n] as { value?: unknown } | undefined; return typeof f?.value === 'string' ? f.value : undefined; };
@@ -99,9 +107,19 @@ export const mediaRoutes: FastifyPluginAsync = async app => {
       await pipeline(file.file, createWriteStream(tmp));
       if (file.file.truncated) throw new HttpError(413, 'الملف أكبر من 100 ميجا، وده أقصى حجم في واتساب', 'too_large');
       const size = file.file.bytesRead;
-      let c;
+      let c: Omit<Awaited<ReturnType<typeof classifyUpload>>, 'convert'> & { convert: OutboundPayload['convert'] };
       try { c = await classifyUpload(tmp, size, fileName, wantVoice); }
       catch (e) { if (e instanceof UploadRejected) throw new HttpError(400, e.message, 'bad_media'); throw e; }
+      if (social) {
+        // Messenger and Instagram: 25 MB, images 8 MB, audio as AAC/MP3 (no Ogg), Instagram files PDF only.
+        if (size > SOCIAL_MEDIA_MAX && c.kind !== 'image') throw new HttpError(400, 'الملف أكبر من 25 ميجا، وده أقصى حجم في ماسنجر وإنستجرام', 'bad_media');
+        if (c.kind === 'document' && conv.channel === 'INSTAGRAM' && c.mime !== 'application/pdf') throw new HttpError(400, 'إنستجرام بيقبل ملفات PDF بس', 'bad_media');
+        if (c.kind === 'audio' && (c.convert || !['audio/mpeg', 'audio/mp4', 'audio/aac'].includes(c.mime))) c = { ...c, mime: 'audio/mp4', ext: 'm4a', convert: 'm4a' as const };
+        // Instagram takes PNG or JPEG only; anything else, or anything over 8 MB, becomes JPEG.
+        if (c.kind === 'image' && !c.convert && (size > SOCIAL_IMAGE_MAX || (conv.channel === 'INSTAGRAM' && !['image/png', 'image/jpeg'].includes(c.mime)))) c = { ...c, mime: 'image/jpeg', ext: 'jpg', convert: 'jpeg' as const };
+        const captionProblem = caption ? socialTextProblem(conv.channel === 'INSTAGRAM' ? 'INSTAGRAM' : 'MESSENGER', caption) : null;
+        if (captionProblem) throw new HttpError(400, captionProblem, 'too_long');
+      }
 
       const payload: OutboundPayload = { kind: c.kind, convert: c.convert };
       const msg = await db.message.create({ data: {
@@ -126,7 +144,7 @@ export const mediaRoutes: FastifyPluginAsync = async app => {
   app.post<{ Params: { id: string } }>('/messages/:id/retry', async req => {
     const auth = requirePermission(req, 'inbox:reply');
     const msg = await messageFor(auth, req.params.id);
-    if (msg.direction === 'IN' && msg.mediaId && msg.mediaStatus === 'FAILED') {
+    if (msg.direction === 'IN' && (msg.mediaId || (msg.payload as { sourceUrl?: string } | null)?.sourceUrl) && msg.mediaStatus === 'FAILED') {
       await db.message.update({ where: { id: msg.id }, data: { mediaStatus: 'PENDING', error: null } });
       await queues.fetchMedia(msg.id);
     } else if (msg.direction === 'OUT' && msg.status === 'FAILED' && msg.payload) {
@@ -139,7 +157,7 @@ export const mediaRoutes: FastifyPluginAsync = async app => {
 
   app.get<{ Params: { id: string } }>('/conversations/:id/templates', async req => {
     const auth = requireAuth(req);
-    const conv = await conversationFor(auth, req.params.id);
+    const conv = await waConversationFor(auth, req.params.id);
     const synced = conv.waNumber.templatesSyncedAt;
     if (!synced || Date.now() - synced.getTime() > TEMPLATE_STALE_MS) await queues.syncTemplates(conv.waNumberId);
     const rows = await db.waTemplate.findMany({ where: { waNumberId: conv.waNumberId }, orderBy: [{ name: 'asc' }, { language: 'asc' }] });
@@ -150,7 +168,7 @@ export const mediaRoutes: FastifyPluginAsync = async app => {
 
   app.post<{ Params: { id: string } }>('/conversations/:id/templates/sync', { config: { rateLimit: { max: 6, timeWindow: '1 minute' } } }, async req => {
     const auth = requirePermission(req, 'inbox:reply');
-    const conv = await conversationFor(auth, req.params.id);
+    const conv = await waConversationFor(auth, req.params.id);
     await queues.syncTemplates(conv.waNumberId);
     return { ok: true };
   });
@@ -160,7 +178,7 @@ export const mediaRoutes: FastifyPluginAsync = async app => {
   // Sends an approved template. JSON, or multipart (`data` JSON field first, then `header` file) when the header is media.
   app.post<{ Params: { id: string } }>('/conversations/:id/template', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
     const auth = requirePermission(req, 'inbox:reply');
-    const conv = await conversationFor(auth, req.params.id);
+    const conv = await waConversationFor(auth, req.params.id);
     let input: z.infer<typeof templateBody>;
     let tmp: string | undefined;
     let header: { size: number; fileName: string } | undefined;

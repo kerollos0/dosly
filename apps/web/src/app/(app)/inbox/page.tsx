@@ -13,6 +13,11 @@ import { TemplatePicker } from '@/components/inbox/template-picker';
 import { ACCEPT, MAX_UPLOAD, uploadWithProgress } from '@/components/inbox/upload';
 import { useVoiceRecorder } from '@/components/inbox/voice-recorder';
 import { setOpenConversation, useNotifyPrefs } from '@/lib/notify';
+import { ChannelBadge, CHANNEL_LABEL } from '@/components/channel-badge';
+
+const CHANNELS = [{ v: '', l: 'كل القنوات' }, { v: 'WHATSAPP', l: 'واتساب' }, { v: 'MESSENGER', l: 'ماسنجر' }, { v: 'INSTAGRAM', l: 'إنستجرام' }] as const;
+const MB = 1024 * 1024;
+const contactLabel = (c: Conversation['contact']) => c.name ?? (c.username ? `@${c.username}` : c.waId ? `+${c.waId}` : 'عميل');
 
 const STATUS = [{ v: 'OPEN', l: 'مفتوحة' }, { v: 'PENDING', l: 'مستنية' }, { v: 'CLOSED', l: 'مقفولة' }] as const;
 
@@ -26,14 +31,15 @@ function Inbox() {
   const [clientId, setClientId] = useState('');
   const [status, setStatus] = useState<'OPEN' | 'PENDING' | 'CLOSED'>('OPEN');
   const [mine, setMine] = useState(false);
+  const [channel, setChannel] = useState('');
   const params = useSearchParams();
   const [selected, setSelected] = useState<string | null>(params.get('c'));
   const { data: clients } = useSWR<Client[]>('/clients', fetcher as never);
-  const qs = new URLSearchParams({ status, ...(clientId ? { clientId } : {}), ...(mine ? { mine: 'true' } : {}) });
+  const qs = new URLSearchParams({ status, ...(clientId ? { clientId } : {}), ...(mine ? { mine: 'true' } : {}), ...(channel ? { channel } : {}) });
   const { data: list } = useSWR<{ items: Conversation[]; nextCursor: string | null }>(`/conversations?${qs}`, fetcher as never, { refreshInterval: 30_000 });
   // A conversation opened from a notification may be outside the current filter, so it is fetched on its own.
   const { data: linked } = useSWR<Conversation>(selected && list && !list.items.some(c => c.id === selected) ? `/conversations/${selected}` : null, fetcher as never);
-  const current = list?.items.find(c => c.id === selected) ?? (linked && 'client' in linked && linked.id === selected ? { ...linked, lastMessageAt: new Date().toISOString(), assignee: null } as Conversation : null);
+  const current = list?.items.find(c => c.id === selected) ?? (linked && 'client' in linked && linked.id === selected ? linked : null);
 
   if (clients && clients.length === 0) {
     return <Empty title="لسه مفيش عملاء">{can.manage(me.role) ? 'ابدأ بإضافة عميل من صفحة العملاء، وبعدين اربط رقم الواتساب بتاعه من صفحة القنوات.' : 'اطلب من مدير الوكالة يعيّنك على عميل.'}</Empty>;
@@ -47,10 +53,15 @@ function Inbox() {
             <h1 className="font-display text-[22px] font-semibold">المحادثات</h1>
             <NotifySwitch />
           </div>
-          <Select aria-label="العميل" value={clientId} onChange={e => setClientId(e.target.value)}>
-            <option value="">كل العملاء</option>
-            {clients?.map(c => <option key={c.id} value={c.id}>{c.name}{c.unreadConversations ? ` (${c.unreadConversations})` : ''}</option>)}
-          </Select>
+          <div className="grid grid-cols-[1fr_auto] gap-2">
+            <Select aria-label="العميل" value={clientId} onChange={e => setClientId(e.target.value)}>
+              <option value="">كل العملاء</option>
+              {clients?.map(c => <option key={c.id} value={c.id}>{c.name}{c.unreadConversations ? ` (${c.unreadConversations})` : ''}</option>)}
+            </Select>
+            <Select aria-label="القناة" value={channel} onChange={e => setChannel(e.target.value)} className="w-32">
+              {CHANNELS.map(c => <option key={c.v} value={c.v}>{c.l}</option>)}
+            </Select>
+          </div>
           <div role="tablist" className="flex gap-1 rounded-[var(--radius-md)] bg-surface-2 p-1">
             {STATUS.map(s => (
               <button key={s.v} role="tab" aria-selected={status === s.v} onClick={() => setStatus(s.v)}
@@ -66,14 +77,14 @@ function Inbox() {
               <button onClick={() => setSelected(c.id)} aria-current={c.id === selected}
                 className={cx('flex w-full flex-col gap-1 border-b border-line px-4 py-3 text-start hover:bg-surface-2', c.id === selected && 'bg-surface-2')}>
                 <span className="flex items-center justify-between gap-2">
-                  <span className="truncate font-semibold">{c.contact.name ?? c.contact.waId}</span>
+                  <span className="truncate font-semibold" dir="auto">{contactLabel(c.contact)}</span>
                   <span className="shrink-0 text-xs text-muted">{formatDistanceToNowStrict(new Date(c.lastMessageAt), { locale: ar })}</span>
                 </span>
                 <span className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm text-muted">{c.lastPreview}</span>
                   {c.unreadCount > 0 && <Pill tone="sun"><span className="num">{c.unreadCount}</span></Pill>}
                 </span>
-                <span className="text-xs text-faience-ink">{c.client.name}{c.assignee ? ` · ${c.assignee.name}` : ''}</span>
+                <span className="flex items-center gap-2 text-xs"><ChannelBadge channel={c.channel ?? 'WHATSAPP'} /><span className="truncate text-faience-ink">{c.client.name}{c.assignee ? ` · ${c.assignee.name}` : ''}</span></span>
               </button>
             </li>
           ))}
@@ -148,8 +159,14 @@ function Thread({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
   const filePreview = useMemo(() => (file?.type.startsWith('image/') ? URL.createObjectURL(file) : null), [file]);
   useEffect(() => () => { if (filePreview) URL.revokeObjectURL(filePreview); }, [filePreview]);
 
+  const social = (conv.channel ?? 'WHATSAPP') !== 'WHATSAPP';
+  const maxUpload = social ? 25 * MB : MAX_UPLOAD;
+  const tooBig = social ? 'الملف أكبر من 25 ميجا، وده أقصى حجم في ماسنجر وإنستجرام' : 'الملف أكبر من 100 ميجا، وده أقصى حجم في واتساب';
+  const textProblem = conv.channel === 'INSTAGRAM' && new TextEncoder().encode(text).length > 1000
+    ? 'الرسالة طويلة على إنستجرام (أقصى حاجة حوالي 500 حرف عربي). قصّرها أو قسّمها على رسالتين.'
+    : conv.channel === 'MESSENGER' && text.length > 1999 ? 'الرسالة أطول من 1999 حرف، وده أقصى طول في ماسنجر' : null;
   async function send() {
-    if (!text.trim()) return;
+    if (!text.trim() || textProblem) return;
     setSending(true); setError(null);
     try {
       await api(`/conversations/${conv.id}/messages`, { body: { body: text } });
@@ -160,7 +177,7 @@ function Thread({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
 
   /** Uploads one attachment; it shows as a bubble with a progress bar until the server has it. */
   const upload = useCallback(async (f: Blob, name: string, opts: { caption?: string; voice?: boolean } = {}) => {
-    if (f.size > MAX_UPLOAD) { setError('الملف أكبر من 100 ميجا، وده أقصى حجم في واتساب'); return; }
+    if (f.size > maxUpload) { setError(tooBig); return; }
     const id = Math.random().toString(36).slice(2);
     const abort = new AbortController();
     setUploads(u => [...u, { id, name, size: f.size, progress: 0, abort }]);
@@ -177,11 +194,13 @@ function Thread({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
       if ((e as { code?: string }).code === 'aborted') setUploads(u => u.filter(x => x.id !== id));
       else setUploads(u => u.map(x => x.id === id ? { ...x, error: msg } : x));
     }
-  }, [conv.id, mutate]);
+  }, [conv.id, mutate, maxUpload, tooBig]);
 
   function pick(f: File | undefined | null) {
     if (!f) return;
-    if (f.size > MAX_UPLOAD) { setError('الملف أكبر من 100 ميجا، وده أقصى حجم في واتساب'); return; }
+    if (f.size > maxUpload) { setError(tooBig); return; }
+    const looksMedia = /^(image|video|audio)\//.test(f.type);
+    if (conv.channel === 'INSTAGRAM' && !looksMedia && !/\.pdf$/i.test(f.name)) { setError('إنستجرام بيقبل ملفات PDF بس، غير الصور والفيديو والصوت'); return; }
     setError(null); setFile(f); setCaption(text); setText('');
   }
   async function sendFile() {
@@ -210,8 +229,12 @@ function Thread({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
       <header className="flex flex-wrap items-center gap-3 border-b border-line px-6 py-3 max-md:px-4">
         <button onClick={onBack} className="hidden text-faience-ink max-lg:block">رجوع</button>
         <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold">{conv.contact.name ?? 'عميل'}</p>
-          <p className="text-sm text-muted"><bdi className="num">+{conv.contact.waId}</bdi> · {conv.client.name}</p>
+          <p className="truncate font-semibold" dir="auto">{contactLabel(conv.contact)}</p>
+          <p className="flex flex-wrap items-center gap-x-2 text-sm text-muted">
+            <ChannelBadge channel={conv.channel ?? 'WHATSAPP'} />
+            {conv.contact.waId ? <bdi className="num">+{conv.contact.waId}</bdi> : conv.contact.username && conv.contact.name ? <bdi dir="ltr">@{conv.contact.username}</bdi> : null}
+            <span>{conv.client.name}</span>
+          </p>
         </div>
         {canReply && (
           <div className="flex gap-2">
@@ -266,11 +289,20 @@ function Thread({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
       </div>
       {canReply && (
         <footer className="border-t border-line p-4">
+          {conv.window === 'human_agent' && !file && (
+            <p className="mb-2 rounded-[var(--radius-md)] bg-surface-2 px-3 py-2 text-xs text-muted">عدّى أكتر من 24 ساعة على آخر رسالة من العميل. {CHANNEL_LABEL[conv.channel]} بيسمح برد من موظف لحد 7 أيام، فالرد هيتبعت بعلامة «رد من موظف» (<bdi dir="ltr">Human agent</bdi>).</p>
+          )}
           {!conv.windowOpen ? (
-            <div className="flex flex-wrap items-center gap-3 rounded-[var(--radius-md)] bg-warning/12 p-3 text-sm text-warning">
-              <p className="min-w-0 flex-1">عدّى أكتر من 24 ساعة على آخر رسالة من العميل، فواتساب مش هيسمح غير برسالة Template متوافق عليها. لما العميل يرد هتقدر تكلمه عادي.</p>
-              <Button type="button" onClick={() => setTemplates(true)}><MessageSquareText size={16} aria-hidden />ابعت Template</Button>
-            </div>
+            social ? (
+              <p className="rounded-[var(--radius-md)] bg-warning/12 p-3 text-sm text-warning">{conv.lastInboundAt
+                ? `عدّى أكتر من 7 أيام على آخر رسالة من العميل، و${CHANNEL_LABEL[conv.channel]} مش بيسمح برسايل جديدة لحد ما يكتبلك تاني.`
+                : `بعتناله رسالة في الخاص من الكومنت. ${CHANNEL_LABEL[conv.channel]} بيسمح برسالة واحدة بس، وهتقدر ترد عادي أول ما يرد عليك.`}</p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-3 rounded-[var(--radius-md)] bg-warning/12 p-3 text-sm text-warning">
+                <p className="min-w-0 flex-1">عدّى أكتر من 24 ساعة على آخر رسالة من العميل، فواتساب مش هيسمح غير برسالة Template متوافق عليها. لما العميل يرد هتقدر تكلمه عادي.</p>
+                <Button type="button" onClick={() => setTemplates(true)}><MessageSquareText size={16} aria-hidden />ابعت Template</Button>
+              </div>
+            )
           ) : file ? (
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-3">
@@ -300,14 +332,14 @@ function Thread({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
                   ))}
                 </ul>
               )}
-              <input ref={fileInput} type="file" accept={ACCEPT} hidden onChange={e => { pick(e.target.files?.[0]); e.target.value = ''; }} />
+              <input ref={fileInput} type="file" accept={conv.channel === 'INSTAGRAM' ? 'image/*,video/mp4,video/quicktime,audio/*,.pdf' : ACCEPT} hidden onChange={e => { pick(e.target.files?.[0]); e.target.value = ''; }} />
               <button type="button" onClick={() => fileInput.current?.click()} aria-label="ابعت صورة أو ملف" title="صورة، فيديو، أو ملف" className="mb-1 rounded-[var(--radius-md)] p-2 text-muted hover:bg-surface-2"><Paperclip size={20} /></button>
-              <button type="button" onClick={() => setTemplates(true)} aria-label="ابعت Template" title="رسالة Template" className="mb-1 rounded-[var(--radius-md)] p-2 text-muted hover:bg-surface-2"><MessageSquareText size={20} /></button>
+              {!social && <button type="button" onClick={() => setTemplates(true)} aria-label="ابعت Template" title="رسالة Template" className="mb-1 rounded-[var(--radius-md)] p-2 text-muted hover:bg-surface-2"><MessageSquareText size={20} /></button>}
               <Textarea aria-label="اكتب الرد" rows={2} value={text} onChange={e => setText(e.target.value)} placeholder="اكتب ردك… أو / للردود الجاهزة"
                 onPaste={e => { const f = [...e.clipboardData.files][0]; if (f) { e.preventDefault(); pick(f); } }}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }} />
               {text.trim() ? (
-                <Button onClick={send} disabled={sending} aria-label="ابعت"><Send size={18} className="-scale-x-100" />ابعت</Button>
+                <Button onClick={send} disabled={sending || !!textProblem} aria-label="ابعت"><Send size={18} className="-scale-x-100" />ابعت</Button>
               ) : (
                 <Button onClick={() => void voice.start()} aria-label="سجّل رسالة صوتية" title="سجّل رسالة صوتية"><Mic size={18} />سجّل</Button>
               )}
@@ -315,10 +347,11 @@ function Thread({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
           )}
           {voice.state === 'denied' && <p role="alert" className="mt-2 text-sm text-danger">المتصفح مش سامح بالمايك. اسمح بيه من علامة القفل جنب العنوان وجرّب تاني.</p>}
           {voice.state === 'unsupported' && <p role="alert" className="mt-2 text-sm text-danger">المتصفح ده مش بيدعم التسجيل. جرّب Chrome أو Safari جديد.</p>}
+          {textProblem && <p role="alert" className="mt-2 text-sm text-danger">{textProblem}</p>}
           {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
         </footer>
       )}
-      <TemplatePicker conversationId={conv.id} open={templates} onClose={() => setTemplates(false)} onSent={() => void mutate()} />
+      {!social && <TemplatePicker conversationId={conv.id} open={templates} onClose={() => setTemplates(false)} onSent={() => void mutate()} />}
       {viewer && (
         <div role="dialog" aria-modal="true" aria-label="الصورة" className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/85 p-4" onClick={() => setViewer(null)}>
           <img src={mediaUrl(viewer)} alt={viewer.body ?? ''} className="max-h-[85vh] max-w-full object-contain" onClick={e => e.stopPropagation()} />

@@ -2,6 +2,7 @@ import type { Db } from '@dosly/db';
 import { demoInboundPayload, demoStatusPayload, type DemoMediaName } from '@dosly/shared';
 import type { Publisher } from './events.js';
 import { processWhatsAppWebhook, type WebhookHooks } from './webhooks.js';
+import { simulateSocialMessage, simulateSocialStatus } from './demo-social.js';
 
 /**
  * Demo traffic: fake customers who write in, and fake phones that mark replies delivered and read.
@@ -78,6 +79,7 @@ export async function simulateInbound(db: Db, pub: Publisher, o: { agencyId: str
 export async function simulateStatus(db: Db, pub: Publisher, messageId: string, status: 'delivered' | 'read') {
   const msg = await db.message.findUnique({ where: { id: messageId }, include: { conversation: { include: { waNumber: true } } } });
   if (!msg?.waMessageId) return;
+  if (!msg.conversation.waNumber) return simulateSocialStatus(db, pub, messageId, status);
   await apply(db, demoStatusPayload({ phoneNumberId: msg.conversation.waNumber.phoneNumberId, waMessageId: msg.waMessageId, status }), pub);
 }
 
@@ -85,5 +87,6 @@ export async function simulateStatus(db: Db, pub: Publisher, messageId: string, 
 export async function simulateReply(db: Db, pub: Publisher, messageId: string, hooks?: WebhookHooks) {
   const msg = await db.message.findUnique({ where: { id: messageId }, include: { conversation: true } });
   if (!msg) return;
+  if (msg.conversation.channel !== 'WHATSAPP') { await simulateSocialMessage(db, pub, { agencyId: msg.agencyId, contactId: msg.conversation.contactId }, hooks); return; }
   await simulateInbound(db, pub, { agencyId: msg.agencyId, contactId: msg.conversation.contactId, media: Math.random() < 0.15 ? 'voice' : undefined }, hooks);
 }

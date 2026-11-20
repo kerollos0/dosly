@@ -62,14 +62,14 @@ export function useNotifications(meId: string | undefined) {
       const e = (ev as CustomEvent<RealtimeEvent>).detail;
       if (e.type !== 'message.new' || e.direction !== 'IN' || !e.conversationId) return;
       if (e.conversationId === openConversation && !document.hidden) return;
-      let c: { id: string; assigneeId: string | null; client: { name: string } | null; contact: { name: string | null; waId: string }; lastPreview: string | null };
+      let c: { id: string; assigneeId: string | null; client: { name: string } | null; contact: { name: string | null; waId: string | null; username?: string | null }; lastPreview: string | null };
       try { c = await api(`/conversations/${e.conversationId}`); } catch { return; } // not mine to see
       if (c.assigneeId && c.assigneeId !== meId) return;
       const p = read();
       if (p.sound) chime();
       if (document.hidden) setMissed(n => n + 1);
       if (p.desktop && typeof Notification !== 'undefined' && Notification.permission === 'granted' && document.hidden) {
-        const n = new Notification(`${c.contact.name ?? '+' + c.contact.waId} · ${c.client?.name ?? ''}`, {
+        const n = new Notification(`${c.contact.name ?? (c.contact.waId ? '+' + c.contact.waId : c.contact.username ?? 'عميل')} · ${c.client?.name ?? ''}`, {
           body: c.lastPreview ?? 'رسالة جديدة', tag: `conv-${c.id}`, icon: '/dosly-mark.svg', lang: 'ar', dir: 'rtl'
         });
         n.onclick = () => { window.focus(); window.location.href = `/inbox?c=${c.id}`; n.close(); };

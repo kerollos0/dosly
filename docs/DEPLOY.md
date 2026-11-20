@@ -42,6 +42,12 @@ docker compose logs -f api
 - اعمل Subscribe على **messages** (الرسايل والصور والفويس وحالات الإرسال) و **message_template_status_update** (لما Meta توافق على قالب أو ترفضه أو توقفه).
 - التوكن لازم يكون فيه صلاحية `whatsapp_business_management` عشان دوسلي يقرا القوالب، و `whatsapp_business_messaging` عشان يبعت.
 
+## 6.1 ربط فيسبوك وإنستجرام (الكومنتات والرسايل)
+- في تطبيق Meta > Webhooks: اختار **Page** واعمل Subscribe على `feed` و `messages` و `message_echoes` و `message_reads` و `message_deliveries` و `messaging_postbacks`. واختار **Instagram** واعمل Subscribe على `comments` و `messages` و `messaging_seen`. نفس الـ Callback URL والـ Verify token.
+- لما تربط صفحة أو حساب إنستجرام من صفحة القنوات، دوسلي بيعمل `subscribed_apps` للصفحة (أو الصفحة اللي الإنستجرام مربوط بيها) لوحده. حقول إنستجرام نفسها بتتظبط من الـ App Dashboard بس. التوكن لازم يكون Page token بتاع الصفحة نفسها.
+- حط `META_APP_ID` في `.env` عشان الـ worker يعرف رسايل دوسلي نفسها لما ترجع echo. حساب إنستجرام لازم يكون Professional ومربوط بالصفحة، وخلّي «السماح بالوصول للرسايل» شغال من إعدادات إنستجرام.
+- الصلاحيات اللي محتاجة App Review: `pages_messaging`، `pages_manage_metadata`، `pages_read_engagement`، `pages_manage_engagement`، `pages_read_user_content`، `instagram_basic`، `instagram_manage_comments`، `instagram_manage_messages`، و Human Agent عشان الرد بعد 24 ساعة.
+
 ## 7. الباك أب
 ```sh
 crontab -e

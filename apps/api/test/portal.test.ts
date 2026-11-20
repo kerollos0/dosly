@@ -7,7 +7,8 @@ afterAll(() => db.$disconnect());
 type App = Awaited<ReturnType<typeof makeApp>>['app'];
 
 async function setup(approval = true) {
-  const { app, calls } = await makeApp(() => ({ id: 'ok' }));
+  // The Page token answers /me with its own Page id.
+  const { app, calls } = await makeApp((url, init) => url.includes('/me?') ? { id: new Headers(init?.headers).get('authorization')?.endsWith('99999') ? '999' : '111' } : { id: 'ok' });
   const own = await owner(app);
   const client = (await own('POST', '/api/clients', { name: 'كافيه نسمة' })).json();
   const page = (await own('POST', '/api/channels/social', { clientId: client.id, platform: 'FACEBOOK_PAGE', externalId: '111', name: 'Page', accessToken: 'EAAG-page-token-12345' })).json();

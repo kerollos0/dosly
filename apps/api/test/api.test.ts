@@ -165,7 +165,7 @@ describe('posts', () => {
   });
 
   it('refuses Instagram posts without an image', async () => {
-    const { app } = await makeApp(() => ({ id: '222' }));
+    const { app } = await makeApp(() => ({ id: '9', instagram_business_account: { id: '222' } }));
     const own = await owner(app);
     const client = (await own('POST', '/api/clients', { name: 'C' })).json();
     const ig = (await own('POST', '/api/channels/social', { clientId: client.id, platform: 'INSTAGRAM', externalId: '222', name: 'IG', accessToken: 'EAAG-ig-token-123456' })).json();

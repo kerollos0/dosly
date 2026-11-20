@@ -21,7 +21,12 @@ export default function ChannelsPage() {
     e.preventDefault();
     const form = e.currentTarget;
     setBusy(true); setErr(null);
-    try { await api(path, { body: Object.fromEntries(new FormData(form)) }); form.reset(); await mutate(); } catch (err) { setErr((err as Error).message); } finally { setBusy(false); }
+    try {
+      const r = await api<{ webhooks?: boolean }>(path, { body: Object.fromEntries(new FormData(form)) });
+      form.reset(); await mutate();
+      // The Page is saved (publishing works), but Meta refused to send its comments and messages to Dosly.
+      if (r.webhooks === false) setErr('الصفحة اتربطت والنشر شغال، بس ميتا رفضت تبعتلنا الكومنتات والرسايل. اتأكد إن التوكن فيه صلاحية pages_manage_metadata واربطها تاني.');
+    } catch (err) { setErr((err as Error).message); } finally { setBusy(false); }
   }
   async function remove(kind: string, id: string) { await api(`/channels/${kind}/${id}`, { method: 'DELETE' }); await mutate(); }
 

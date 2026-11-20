@@ -8,3 +8,4 @@ export * from './plans.js';
 export * from './totp.js';
 export * from './wa-media.js';
 export * from './wa-templates.js';
+export * from './meta-social.js';

@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { encrypt, hashPassword, newTotpSecret, randomToken, ROLES } from '@dosly/shared';
-import { seedDemoAgency, simulateInbound } from '@dosly/core';
+import { seedDemoAgency, simulateComment, simulateInbound, simulateSocialMessage } from '@dosly/core';
 import { audit, createSession, HttpError, requireAuth, SESSION_COOKIE } from '../auth.js';
 import { createPortalSession } from '../portal-auth.js';
 import { createAdminSession } from '../admin-auth.js';
@@ -56,6 +56,17 @@ export const demoRoutes: FastifyPluginAsync = async app => {
     const { auth } = await sandboxOf(req);
     const { clientId, media } = z.object({ clientId: z.string().optional(), media: z.enum(['photo', 'voice', 'pricelist', 'random']).optional() }).parse(req.body ?? {});
     await simulateInbound(db, realtime, { agencyId: auth.agencyId, clientId, media: media ?? 'random' }, { onMedia: id => app.deps.queues.fetchMedia(id) });
+    return { ok: true };
+  });
+
+  // A new comment on a published post, or a Messenger/Instagram message, as Meta would deliver it.
+  app.post('/demo/social', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async req => {
+    const { auth } = await sandboxOf(req);
+    const o = z.object({ kind: z.enum(['comment', 'message']), clientId: z.string().optional(), platform: z.enum(['FACEBOOK_PAGE', 'INSTAGRAM']).optional(), media: z.enum(['photo', 'voice', 'pricelist']).optional() }).parse(req.body ?? {});
+    const ok = o.kind === 'comment'
+      ? await simulateComment(db, realtime, { agencyId: auth.agencyId, clientId: o.clientId, platform: o.platform })
+      : await simulateSocialMessage(db, realtime, { agencyId: auth.agencyId, clientId: o.clientId, platform: o.platform, media: o.media }, { onMedia: id => app.deps.queues.fetchMedia(id) });
+    if (!ok) throw new HttpError(404, 'مفيش صفحة أو بوست منشور للعميل ده', 'not_found');
     return { ok: true };
   });
 

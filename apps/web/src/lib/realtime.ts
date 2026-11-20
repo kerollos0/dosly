@@ -18,6 +18,7 @@ export function useRealtime(enabled: boolean) {
         void mutate(k => typeof k === 'string' && (k.startsWith('/conversations') || k === '/clients'));
       }
       if (e.type === 'templates.updated') void mutate(k => typeof k === 'string' && k.endsWith('/templates'));
+      if (e.type.startsWith('comment')) void mutate(k => typeof k === 'string' && k.includes('/comments')); // includes the paged list's $inf$ key
       if (e.type.startsWith('post')) void mutate(k => typeof k === 'string' && k.startsWith('/posts'));
     });
     return () => { socket.disconnect(); };

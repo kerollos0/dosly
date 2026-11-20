@@ -4,7 +4,7 @@ import { pino } from 'pino';
 import { z } from 'zod';
 import { createDb, Prisma } from '@dosly/db';
 import { demoFetch, loadKey, publishFacebookPost, publishInstagramPost } from '@dosly/shared';
-import { DEMO_TTL_HOURS, deleteExpiredDemos, fetchInboundMedia, localMediaStore, markMediaFailed, markSendFailed, overduePosts, pendingInboundMedia, PermanentMediaError, processWhatsAppWebhook, publishPost, sendQueuedMessage, simulateInbound, simulateReply, simulateStatus, syncTemplates, type MediaDeps, type Publishers, type Publisher } from '@dosly/core';
+import { DEMO_TTL_HOURS, deleteExpiredDemos, fetchInboundMedia, localMediaStore, markMediaFailed, markSendFailed, overduePosts, pendingInboundMedia, PermanentMediaError, processMetaWebhook, publishPost, sendQueuedMessage, simulateComment, simulateInbound, simulateSocialMessage, simulateReply, simulateStatus, syncTemplates, type MediaDeps, type Publishers, type Publisher } from '@dosly/core';
 import type { Job } from 'bullmq';
 
 const env = z.object({
@@ -14,6 +14,7 @@ const env = z.object({
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(64).default(8),
   PRIVATE_MEDIA_DIR: z.string().default('./private-media'),
   MEDIA_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(4), // ffmpeg and image work are CPU heavy
+  META_APP_ID: z.string().optional(), // echoes of messages Dosly sent are skipped by this app id
   DEMO_MODE: z.enum(['true', 'false']).default('false'),
   DEMO_AMBIENT_SECONDS: z.coerce.number().int().min(0).default(120) // 0 turns off the background customers
 }).parse(process.env);
@@ -37,14 +38,15 @@ const mediaDeps: MediaDeps = { db, store, key, pub, fetch: graphFetch, log };
 const mediaQueue = new Queue('media', { connection });
 const jobOpts = (attempts: number, delay: number) => ({ attempts, backoff: { type: 'exponential' as const, delay }, removeOnComplete: 1000, removeOnFail: 5000 });
 const fetchMediaLater = async (messageId: string) => { await mediaQueue.add('fetch', { messageId }, { jobId: `fetch-${messageId}`, ...jobOpts(6, 5000) }); };
-const hooks = { onMedia: fetchMediaLater };
+// key + fetch: names of new Messenger/Instagram customers; store: removing attachments a customer unsent.
+const hooks = { onMedia: fetchMediaLater, key, fetch: graphFetch, store, appId: env.META_APP_ID };
 
 const webhooks = new Worker('webhooks', async job => {
   const event = await db.webhookEvent.findUnique({ where: { id: job.data.eventId } });
   if (!event || event.processedAt) return;
   try {
-    const res = await processWhatsAppWebhook(db, event.payload, pub, hooks);
-    if (res.unknownNumbers.length) log.warn({ numbers: res.unknownNumbers }, 'Webhook for numbers not connected to any agency');
+    const res = await processMetaWebhook(db, event.payload, pub, hooks);
+    if (res.unknown.length) log.warn({ ids: res.unknown }, 'Webhook for numbers or pages not connected to any agency');
     await db.webhookEvent.update({ where: { id: event.id }, data: { processedAt: new Date(), error: null } });
   } catch (err) {
     await db.webhookEvent.update({ where: { id: event.id }, data: { error: String((err as Error).message).slice(0, 1000) } });
@@ -120,7 +122,13 @@ if (demoQueue) {
         // Sandboxes opened in the last two hours get an occasional new customer, so the inbox feels alive.
         const openedRecently = new Date(Date.now() + (DEMO_TTL_HOURS - 2) * 3600_000); // expiry is set to opening time + TTL
         const active = await db.agency.findMany({ where: { demoExpiresAt: { gt: openedRecently } }, select: { id: true }, take: 50 });
-        for (const a of active) if (Math.random() < 0.5) await simulateInbound(db, pub, { agencyId: a.id, media: 'random' }, hooks);
+        for (const a of active) {
+          const r = Math.random();
+          // WhatsApp stays the busiest channel; comments come next, then Messenger and Instagram messages.
+          if (r < 0.35) await simulateInbound(db, pub, { agencyId: a.id, media: 'random' }, hooks);
+          else if (r < 0.6) await simulateComment(db, pub, { agencyId: a.id });
+          else if (r < 0.72) await simulateSocialMessage(db, pub, { agencyId: a.id, media: Math.random() < 0.2 ? 'photo' : undefined }, hooks);
+        }
         return { agencies: active.length };
       }
     }

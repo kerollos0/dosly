@@ -2,6 +2,7 @@ import type { Db, Prisma, Role } from '@dosly/db';
 import { DEMO_MEDIA, DEMO_TEMPLATES, encrypt, hashPassword, randomToken, type DemoMediaName } from '@dosly/shared';
 import { DEMO_OPENERS, demoName, demoPhone, pick, type DemoKind } from './demo.js';
 import { previewText } from './media.js';
+import { seedSocial, type SeedSocialInput } from './demo-social.js';
 import type { MediaStore } from './media-store.js';
 
 /**
@@ -215,6 +216,7 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
         { day: 6 + ci, hour: 18, status: 'SCHEDULED' },
         { day: 3 + ci * 2, hour: 21, status: 'DRAFT' }
       ];
+      const published: SeedSocialInput['posts'] = [];
       for (const [pi, p] of plan.entries()) {
         const src = POSTS[c.kind][pi]!;
         const at = new Date(now); at.setDate(at.getDate() + p.day); at.setHours(p.hour, 0, 0, 0);
@@ -234,6 +236,8 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
           ...(c.approval && (p.status === 'PUBLISHED' || p.status === 'PARTIAL') ? { clientReview: 'APPROVED' as const, reviewedAt: new Date(at.getTime() - 86400_000) } : {}),
           createdAt: new Date(Math.min(at.getTime(), now.getTime()) - 2 * 86400_000)
         } });
+        published.push(...targets.flatMap((t, ti) => (p.status === 'PUBLISHED' || (p.status === 'PARTIAL' && ti === 0)) && at <= now
+          ? [{ accountId: t.id, platform: t.platform, externalPostId: `demo_${tag}_${ci}_${pi}_${ti}`, publishedAt: at }] : []));
         await tx.postTarget.createMany({ data: targets.map((t, ti) => {
           const failed = p.status === 'PARTIAL' && ti === 1;
           const done = (p.status === 'PUBLISHED' || p.status === 'PARTIAL') && !failed;
@@ -244,6 +248,7 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
           };
         }) });
       }
+      await seedSocial(tx, { agencyId: agency.id, clientId: client.id, kind: c.kind, moderatorId: moderator.id, now, fb, ig, posts: published });
     }
 
     const log = (minAgo: number, userId: string | null, action: string, entity: string, meta?: object) =>

@@ -37,6 +37,7 @@ model Agency {
   messages    Message[]
   quickReplies QuickReply[]
   waTemplates WaTemplate[]
+  socialComments SocialComment[]
   socialAccounts SocialAccount[]
   posts       Post[]
   auditLogs   AuditLog[]
@@ -107,6 +108,7 @@ model User {
   assignments  ClientAssignment[]
   assignedConversations Conversation[] @relation("assignee")
   sentMessages Message[]
+  sentComments SocialComment[]
   createdPosts Post[] @relation("postAuthor")
   approvedPosts Post[] @relation("postApprover")
 }
@@ -164,6 +166,7 @@ model Client {
   socialAccounts SocialAccount[]
   posts       Post[]
   portalUsers ClientUser[]
+  socialComments SocialComment[]
   requiresClientApproval Boolean @default(false) // posts wait for the client's OK in the portal before publishing
 
   @@index([agencyId])
@@ -246,19 +249,32 @@ model WhatsAppNumber {
 }
 
 model Contact {
-  id         String   @id @default(cuid())
-  agencyId   String
-  clientId   String
-  waNumberId String
-  waId       String   // customer's WhatsApp id (phone in E.164 without +)
-  name       String?
-  createdAt  DateTime @default(now())
-  agency     Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
-  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  waNumber   WhatsAppNumber @relation(fields: [waNumberId], references: [id], onDelete: Cascade)
-  conversations Conversation[]
+  id              String   @id @default(cuid())
+  agencyId        String
+  clientId        String
+  waNumberId      String?
+  socialAccountId String?
+  waId            String?  // WhatsApp: the customer's number in E.164 without +
+  externalId      String?  // Messenger PSID or Instagram-scoped id
+  username        String?  // Instagram @handle
+  avatarUrl       String?
+  name            String?
+  createdAt       DateTime @default(now())
+  agency          Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  waNumber        WhatsAppNumber? @relation(fields: [waNumberId], references: [id], onDelete: Cascade)
+  socialAccount   SocialAccount?  @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  conversations   Conversation[]
 
   @@unique([waNumberId, waId])
+  @@unique([socialAccountId, externalId])
+}
+
+/** Where a conversation happens. Comments live in SocialComment, not here. */
+enum Channel {
+  WHATSAPP
+  MESSENGER
+  INSTAGRAM
 }
 
 enum ConversationStatus {
@@ -271,23 +287,27 @@ model Conversation {
   id             String   @id @default(cuid())
   agencyId       String
   clientId       String
-  waNumberId     String
+  channel        Channel  @default(WHATSAPP)
+  waNumberId     String?
+  socialAccountId String?
   contactId      String
   status         ConversationStatus @default(OPEN)
   assigneeId     String?
   unreadCount    Int      @default(0)
   lastMessageAt  DateTime @default(now())
-  lastInboundAt  DateTime? // WhatsApp only allows free-form replies within 24h of this
+  lastInboundAt  DateTime? // free-form replies are allowed within 24h of this (Messenger/Instagram: 7 days with the human agent tag)
   lastPreview    String?
   createdAt      DateTime @default(now())
   agency         Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
   client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  waNumber       WhatsAppNumber @relation(fields: [waNumberId], references: [id], onDelete: Cascade)
+  waNumber       WhatsAppNumber? @relation(fields: [waNumberId], references: [id], onDelete: Cascade)
+  socialAccount  SocialAccount?  @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
   contact        Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
   assignee       User?    @relation("assignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   messages       Message[]
 
   @@unique([waNumberId, contactId])
+  @@unique([socialAccountId, contactId])
   @@index([agencyId, lastMessageAt])
 }
 
@@ -325,7 +345,7 @@ model Message {
   durationSec    Float?
   voice          Boolean  @default(false) // a WhatsApp voice note (OGG/OPUS mono), not an audio file
   payload        Json?    // outbound: what the worker sends (template components, media options)
-  waMessageId    String?  @unique
+  waMessageId    String?  @unique // the platform's message id: WhatsApp wamid or Messenger/Instagram mid
   status         MessageStatus
   error          String?
   sentById       String?
@@ -394,8 +414,51 @@ model SocialAccount {
   agency         Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
   client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   targets        PostTarget[]
+  contacts       Contact[]
+  conversations  Conversation[]
+  comments       SocialComment[]
 
   @@unique([agencyId, platform, externalId])
+  @@index([platform, externalId]) // webhook routing
+}
+
+enum CommentStatus {
+  OPEN   // needs an answer or a decision
+  DONE   // answered, hidden, or marked handled
+}
+
+/**
+ * Comments on the client's Facebook and Instagram posts, including the agency's own replies
+ * (fromPage = true). Threads: a reply points at its parent through parentExternalId.
+ */
+model SocialComment {
+  id                String   @id @default(cuid())
+  agencyId          String
+  clientId          String
+  socialAccountId   String
+  platform          Platform
+  externalId        String   // Graph comment id
+  postExternalId    String   // the post or media it is on
+  parentExternalId  String?  // set on replies
+  authorId          String?
+  authorName        String?
+  body              String
+  fromPage          Boolean  @default(false)
+  sentById          String?
+  status            CommentStatus @default(OPEN)
+  isHidden          Boolean  @default(false)
+  deletedAt         DateTime?
+  privateReplyAt    DateTime? // Meta allows one private message per comment, within 7 days
+  privateConversationId String? // the inbox conversation that private reply opened
+  createdAt         DateTime @default(now())
+  agency            Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  socialAccount     SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  sentBy            User?    @relation(fields: [sentById], references: [id], onDelete: SetNull)
+
+  @@unique([socialAccountId, externalId])
+  @@index([agencyId, status, createdAt])
+  @@index([socialAccountId, postExternalId, createdAt])
 }
 
 enum ClientReview {

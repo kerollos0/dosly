@@ -8,3 +8,5 @@ export * from './media-store.js';
 export * from './media-tools.js';
 export * from './media.js';
 export * from './templates.js';
+export * from './social.js';
+export * from './demo-social.js';

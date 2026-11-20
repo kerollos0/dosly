@@ -29,7 +29,8 @@ export type Client = {
 };
 export type Conversation = {
   id: string; clientId: string; status: 'OPEN' | 'PENDING' | 'CLOSED'; unreadCount: number; lastMessageAt: string; lastPreview: string | null;
-  windowOpen: boolean; contact: { name: string | null; waId: string }; client: { id: string; name: string }; assignee: { id: string; name: string } | null;
+  channel: 'WHATSAPP' | 'MESSENGER' | 'INSTAGRAM'; lastInboundAt: string | null; window: 'open' | 'human_agent' | 'closed';
+  windowOpen: boolean; contact: { name: string | null; waId: string | null; username?: string | null }; client: { id: string; name: string }; assignee: { id: string; name: string } | null;
 };
 export type Message = {
   id: string; direction: 'IN' | 'OUT'; type: string; body: string | null; status: string; error: string | null; createdAt: string; sentBy: { id: string; name: string } | null;
@@ -59,3 +60,9 @@ export const can = {
 };
 
 export const ROLE_LABEL: Record<Role, string> = { OWNER: 'صاحب الوكالة', MANAGER: 'مدير', MODERATOR: 'مودريتور', WRITER: 'كاتب محتوى' };
+export type CommentReply = { id: string; body: string | null; fromPage: boolean; authorName: string | null; createdAt: string; isHidden: boolean; deleted: boolean; sentBy: { id: string; name: string } | null };
+export type CommentThread = {
+  id: string; platform: 'FACEBOOK_PAGE' | 'INSTAGRAM'; body: string; authorName: string | null; createdAt: string; status: 'OPEN' | 'DONE'; isHidden: boolean;
+  privateReplyAt: string | null; privateConversationId: string | null; canPrivateReply: boolean; client: { id: string; name: string }; account: { id: string; name: string; platform: string };
+  post: { id: string; caption: string; image: string | null } | null; replies: CommentReply[];
+};

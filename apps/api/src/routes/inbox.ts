@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { conversationUpdateSchema, decrypt, GraphError, isWindowOpen, quickReplySchema, sendMessageSchema, sendWhatsAppText } from '@dosly/shared';
+import { conversationUpdateSchema, decrypt, GraphError, quickReplySchema, replyWindow, sendMessageSchema, sendSocialMessage, sendWhatsAppText, socialTextProblem, WINDOW_CLOSED_AR } from '@dosly/shared';
+import { attachPlatformId } from '@dosly/core';
 import type { AuthContext } from '../auth.js';
 import { assertClientAccess, audit, HttpError, requireAuth, requirePermission, visibleClientIds } from '../auth.js';
 import { publicMessage } from './media.js';
@@ -9,6 +10,7 @@ const listQuery = z.object({
   clientId: z.string().optional(),
   status: z.enum(['OPEN', 'PENDING', 'CLOSED']).optional(),
   mine: z.coerce.boolean().optional(),
+  channel: z.enum(['WHATSAPP', 'MESSENGER', 'INSTAGRAM']).optional(),
   cursor: z.string().optional(), // id of the last conversation from the previous page
   limit: z.coerce.number().int().min(1).max(100).default(30)
 });
@@ -17,7 +19,7 @@ export const inboxRoutes: FastifyPluginAsync = async app => {
   const { db, key, realtime } = app.deps;
 
   async function loadConversation(auth: AuthContext, id: string) {
-    const conv = await db.conversation.findFirst({ where: { id, agencyId: auth.agencyId }, include: { waNumber: true, contact: true } });
+    const conv = await db.conversation.findFirst({ where: { id, agencyId: auth.agencyId }, include: { waNumber: true, socialAccount: true, contact: true } });
     if (!conv) throw new HttpError(404, 'المحادثة مش موجودة', 'not_found');
     await assertClientAccess(db, auth, conv.clientId);
     return conv;
@@ -33,15 +35,16 @@ export const inboxRoutes: FastifyPluginAsync = async app => {
         agencyId: auth.agencyId,
         ...(q.clientId ? { clientId: q.clientId } : visible === 'all' ? {} : { clientId: { in: visible } }),
         ...(q.status ? { status: q.status } : {}),
-        ...(q.mine ? { assigneeId: auth.userId } : {})
+        ...(q.mine ? { assigneeId: auth.userId } : {}),
+        ...(q.channel ? { channel: q.channel } : {})
       },
       orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
       take: q.limit + 1,
       ...(q.cursor ? { cursor: { id: q.cursor }, skip: 1 } : {}),
-      include: { contact: { select: { name: true, waId: true } }, client: { select: { id: true, name: true } }, assignee: { select: { id: true, name: true } } }
+      include: { contact: { select: { name: true, waId: true, username: true, avatarUrl: true } }, client: { select: { id: true, name: true } }, assignee: { select: { id: true, name: true } } }
     });
     const hasMore = items.length > q.limit;
-    const page = items.slice(0, q.limit).map(c => ({ ...c, windowOpen: isWindowOpen(c.lastInboundAt) }));
+    const page = items.slice(0, q.limit).map(c => { const window = replyWindow(c.channel, c.lastInboundAt); return { ...c, window, windowOpen: window !== 'closed' }; });
     return { items: page, nextCursor: hasMore ? page.at(-1)!.id : null };
   });
 
@@ -75,8 +78,11 @@ export const inboxRoutes: FastifyPluginAsync = async app => {
   app.get<{ Params: { id: string } }>('/conversations/:id', async req => {
     const auth = requireAuth(req);
     const c = await loadConversation(auth, req.params.id);
-    const client = await db.client.findUnique({ where: { id: c.clientId }, select: { id: true, name: true } });
-    return { id: c.id, clientId: c.clientId, client, status: c.status, assigneeId: c.assigneeId, unreadCount: c.unreadCount, lastPreview: c.lastPreview, contact: { name: c.contact.name, waId: c.contact.waId }, windowOpen: isWindowOpen(c.lastInboundAt) };
+    const [client, assignee] = await Promise.all([
+      db.client.findUnique({ where: { id: c.clientId }, select: { id: true, name: true } }),
+      c.assigneeId ? db.user.findUnique({ where: { id: c.assigneeId }, select: { id: true, name: true } }) : null
+    ]);
+    return { id: c.id, clientId: c.clientId, client, status: c.status, assigneeId: c.assigneeId, assignee, lastMessageAt: c.lastMessageAt, lastInboundAt: c.lastInboundAt, unreadCount: c.unreadCount, lastPreview: c.lastPreview, channel: c.channel, contact: { name: c.contact.name, waId: c.contact.waId, username: c.contact.username }, window: replyWindow(c.channel, c.lastInboundAt), windowOpen: replyWindow(c.channel, c.lastInboundAt) !== 'closed' };
   });
 
   app.post<{ Params: { id: string } }>('/conversations/:id/read', async req => {
@@ -90,17 +96,29 @@ export const inboxRoutes: FastifyPluginAsync = async app => {
     const auth = requirePermission(req, 'inbox:reply');
     const conv = await loadConversation(auth, req.params.id);
     const { body } = sendMessageSchema.parse(req.body);
-    if (!isWindowOpen(conv.lastInboundAt)) throw new HttpError(409, 'عدّى أكتر من 24 ساعة على آخر رسالة من العميل. واتساب بيسمح بس برسايل Template دلوقتي.', 'window_closed');
+    const window = replyWindow(conv.channel, conv.lastInboundAt);
+    if (window === 'closed') throw new HttpError(409, WINDOW_CLOSED_AR[conv.channel], 'window_closed');
+    const tooLong = conv.channel === 'WHATSAPP' ? null : socialTextProblem(conv.channel, body);
+    if (tooLong) throw new HttpError(400, tooLong, 'too_long');
     const msg = await db.message.create({ data: { agencyId: auth.agencyId, conversationId: conv.id, direction: 'OUT', type: 'text', body, status: 'QUEUED', sentById: auth.userId } });
     try {
-      const waMessageId = await sendWhatsAppText({ phoneNumberId: conv.waNumber.phoneNumberId, token: decrypt(conv.waNumber.accessTokenEnc, key), to: conv.contact.waId, body }, app.deps.fetch);
-      const sent = await db.message.update({ where: { id: msg.id }, data: { waMessageId, status: 'SENT' } });
+      let waMessageId: string;
+      if (conv.waNumber && conv.contact.waId) {
+        waMessageId = await sendWhatsAppText({ phoneNumberId: conv.waNumber.phoneNumberId, token: decrypt(conv.waNumber.accessTokenEnc, key), to: conv.contact.waId, body }, app.deps.fetch);
+      } else if (conv.socialAccount && conv.contact.externalId) {
+        // Past 24h, Messenger and Instagram allow a person's reply for 7 days with the HUMAN_AGENT tag.
+        const r = await sendSocialMessage({ token: decrypt(conv.socialAccount.accessTokenEnc, key), recipient: { id: conv.contact.externalId }, text: body, tag: window === 'human_agent' ? 'HUMAN_AGENT' : undefined }, app.deps.fetch);
+        waMessageId = r.messageId;
+      } else throw new HttpError(409, 'القناة بتاعة المحادثة دي اتشالت', 'channel_gone');
+      // The echo webhook may have stored this id first; attachPlatformId keeps one copy, ours.
+      const sent = await attachPlatformId(db, msg.id, waMessageId, { status: 'SENT' });
       await db.conversation.update({ where: { id: conv.id }, data: { lastMessageAt: sent.createdAt, lastPreview: body.slice(0, 140), unreadCount: 0, assigneeId: conv.assigneeId ?? auth.userId } });
       await realtime.publish(auth.agencyId, { type: 'message.new', conversationId: conv.id, clientId: conv.clientId, messageId: sent.id, direction: 'OUT' });
       await app.deps.queues.demoAfterSend?.(sent.id);
       return reply.status(201).send(publicMessage(sent));
     } catch (e) {
-      const error = e instanceof GraphError ? e.message : 'تعذر الاتصال بواتساب';
+      if (e instanceof HttpError) { await db.message.update({ where: { id: msg.id }, data: { status: 'FAILED', error: e.message } }); throw e; }
+      const error = e instanceof GraphError ? e.message : conv.channel === 'WHATSAPP' ? 'تعذر الاتصال بواتساب' : 'تعذر الاتصال بفيسبوك';
       await db.message.update({ where: { id: msg.id }, data: { status: 'FAILED', error } });
       throw new HttpError(502, `الرسالة متبعتتش: ${error}`, 'send_failed');
     }

@@ -13,6 +13,7 @@ import { clientRoutes } from './routes/clients.js';
 import { channelRoutes } from './routes/channels.js';
 import { inboxRoutes } from './routes/inbox.js';
 import { mediaRoutes } from './routes/media.js';
+import { commentRoutes } from './routes/comments.js';
 import { postRoutes } from './routes/posts.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { auditRoutes } from './routes/audit.js';
@@ -99,6 +100,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   await app.register(channelRoutes, { prefix: '/api' });
   await app.register(inboxRoutes, { prefix: '/api' });
   await app.register(mediaRoutes, { prefix: '/api' });
+  await app.register(commentRoutes, { prefix: '/api' });
   await app.register(postRoutes, { prefix: '/api' });
   await app.register(auditRoutes, { prefix: '/api' });
   await app.register(portalRoutes, { prefix: '/api/portal' });
