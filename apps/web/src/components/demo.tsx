@@ -33,7 +33,7 @@ export function DemoStart() {
     catch (e) { setError((e as Error).message); setBusy(false); }
   }
   return (
-    <section aria-labelledby="demo-h" className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-faience/40 bg-faience/8 p-4">
+    <section id="demo" aria-labelledby="demo-h" className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-faience/40 bg-faience/8 p-4">
       <h2 id="demo-h" className="flex items-center gap-2 font-display text-lg font-bold"><FlaskConical size={20} aria-hidden className="text-faience-ink" />جرّب دوسلي من غير حساب</h2>
       <p className="text-sm text-muted">هتدخل على وكالة تجريبية خاصة بيك فيها 4 عملاء ومحادثات وبوستات. محدش غيرك هيشوفها، وبتتمسح بعد 24 ساعة.</p>
       <fieldset className="grid grid-cols-2 gap-2">

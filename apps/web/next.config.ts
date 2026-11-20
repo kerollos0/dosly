@@ -11,6 +11,7 @@ const config: NextConfig = {
   skipTrailingSlashRedirect: true,
   outputFileTracingRoot: fileURLToPath(new URL('../../', import.meta.url)),
   poweredByHeader: false,
+  devIndicators: false,
   async rewrites() {
     if (!api) return [];
     return [

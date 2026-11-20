@@ -121,11 +121,11 @@ function Thread({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
         </div>
         {can.reply(me.role) && (
           <div className="flex gap-2">
-            <Select aria-label="المسؤول" className="h-9 w-40" defaultValue={conv.assignee?.id ?? ''} onChange={e => update({ assigneeId: e.target.value || null })}>
+            <Select aria-label="المسؤول" className="h-9 w-44 px-2" defaultValue={conv.assignee?.id ?? ''} onChange={e => update({ assigneeId: e.target.value || null })}>
               <option value="">من غير مسؤول</option>
               {team?.members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
             </Select>
-            <Select aria-label="الحالة" className="h-9 w-32" defaultValue={conv.status} onChange={e => update({ status: e.target.value })}>
+            <Select aria-label="الحالة" className="h-9 w-32 px-2" defaultValue={conv.status} onChange={e => update({ status: e.target.value })}>
               {STATUS.map(s => <option key={s.v} value={s.v}>{s.l}</option>)}
             </Select>
           </div>

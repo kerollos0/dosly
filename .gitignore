@@ -10,3 +10,4 @@ coverage
 packages/db/src/generated
 uploads
 dump.rdb
+apps/web/AGENTS.md

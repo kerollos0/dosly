@@ -4,7 +4,7 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import { fetcher } from '@/lib/api';
 import { Input, PageHeader, Pill } from '@/components/ui';
-import { PLAN_LABEL, planPill } from '@/lib/admin';
+import { PLAN_LABEL, planPill } from '@/lib/plans';
 
 type Row = { id: string; name: string; plan: string; status: string; trialEndsAt: string | null; paidUntil: string | null; createdAt: string; owner: { name: string; email: string } | null; clients: number; members: number };
 

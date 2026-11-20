@@ -33,7 +33,7 @@ export default function TeamPage() {
               {data?.members.map(m => (
                 <tr key={m.id} className="border-b border-line">
                   <td className="py-3 font-semibold">{m.name}</td>
-                  <td className="num text-muted">{m.email}</td>
+                  <td className="num text-muted">{m.email.endsWith(".invalid") ? "حساب ديمو" : m.email}</td>
                   <td>
                     {manage && m.role !== 'OWNER' && m.id !== me.user.id ? (
                       <Select aria-label={`دور ${m.name}`} className="h-9 w-40" defaultValue={m.role} onChange={e => act(() => api(`/team/${m.id}`, { method: 'PATCH', body: { role: e.target.value } }))}>

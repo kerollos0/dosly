@@ -5,7 +5,7 @@ import { use, useState } from 'react';
 import useSWR from 'swr';
 import { api, fetcher, ROLE_LABEL, type Role } from '@/lib/api';
 import { Button, ErrorText, Field, Input, Modal, PageHeader, Pill, Select } from '@/components/ui';
-import { PLAN_LABEL, PLAN_PRICE, planPill } from '@/lib/admin';
+import { PLAN_LABEL, PLAN_PRICE, planPill } from '@/lib/plans';
 
 type Detail = {
   id: string; name: string; plan: string; status: string; suspendedReason: string | null; trialEndsAt: string | null; paidUntil: string | null; createdAt: string; demoExpiresAt: string | null;
