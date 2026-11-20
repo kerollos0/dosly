@@ -1,0 +1,93 @@
+# Dosly on one VPS. Start with: docker compose up -d --build
+name: dosly
+
+x-app: &app
+  build: { context: ., target: app }
+  image: dosly-app
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql://dosly:${POSTGRES_PASSWORD}@postgres:5432/dosly
+    REDIS_URL: redis://redis:6379
+    UPLOAD_DIR: /data/media
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dosly
+      POSTGRES_DB: dosly
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U dosly"], interval: 5s, retries: 20 }
+    shm_size: 256mb
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Persist queues so scheduled posts survive a restart (the worker also sweeps overdue posts every minute).
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes: [redisdata:/data]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, retries: 20 }
+
+  migrate:
+    <<: *app
+    restart: "no"
+    command: ["sh", "-c", "cd packages/db && node_modules/.bin/prisma migrate deploy"]
+
+  api:
+    <<: *app
+    command: ["node", "apps/api/dist/server.js"]
+    volumes: [media:/data/media]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck: { test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"], interval: 15s, retries: 5 }
+
+  worker:
+    <<: *app
+    command: ["node", "apps/worker/dist/worker.js"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  web:
+    build: { context: ., target: web }
+    image: dosly-web
+    restart: unless-stopped
+    depends_on: [api]
+
+  n8n:
+    image: n8nio/n8n:1.123.0
+    restart: unless-stopped
+    environment:
+      N8N_HOST: n8n.${DOMAIN}
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://n8n.${DOMAIN}/
+      GENERIC_TIMEZONE: Africa/Cairo
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+    volumes: [n8ndata:/home/node/.n8n]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - media:/srv/media:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on: [api, web]
+
+volumes:
+  pgdata:
+  redisdata:
+  media:
+  n8ndata:
+  caddydata:
+  caddyconfig:

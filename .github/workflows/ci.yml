@@ -1,0 +1,28 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: dosly, POSTGRES_PASSWORD: dosly, POSTGRES_DB: dosly_test }
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U dosly" --health-interval 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://dosly:dosly@localhost:5432/dosly_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @dosly/shared build && pnpm --filter @dosly/db build && pnpm --filter @dosly/core build
+      - run: cd packages/db && npx prisma migrate deploy
+      - run: pnpm --filter @dosly/api --filter @dosly/worker --filter @dosly/web typecheck
+      - run: pnpm --filter @dosly/shared --filter @dosly/core --filter @dosly/api test
+      - run: pnpm --filter @dosly/web build
