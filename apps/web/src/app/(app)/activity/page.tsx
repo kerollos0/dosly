@@ -9,7 +9,9 @@ const LABEL: Record<string, string> = {
   'team.invite': 'بعت دعوة', 'team.role': 'غيّر دور عضو', 'team.remove': 'شال عضو',
   'channel.whatsapp.connect': 'ربط رقم واتساب', 'channel.social.connect': 'ربط صفحة', 'channel.whatsapp.disconnect': 'فصل رقم واتساب', 'channel.social.disconnect': 'فصل صفحة',
   'conversation.update': 'عدّل محادثة', 'post.draft': 'كتب مسودة بوست', 'post.schedule': 'جدول بوست', 'post.approve': 'وافق على بوست', 'post.edit': 'عدّل بوست',
-  'post.delete': 'مسح بوست', 'post.publish_now': 'نشر بوست حالًا', 'post.published': 'البوست اتنشر', 'post.failed': 'نشر البوست فشل', 'post.partial': 'البوست اتنشر جزئيًا'
+  'post.delete': 'مسح بوست', 'post.publish_now': 'نشر بوست حالًا', 'post.published': 'البوست اتنشر', 'post.failed': 'نشر البوست فشل', 'post.partial': 'البوست اتنشر جزئيًا',
+  'post.client_approve': 'وافق على بوست من البوابة', 'post.client_changes': 'طلب تعديل على بوست من البوابة', 'client.portal_invite': 'ضاف حد لبوابة العميل', 'client.portal_settings': 'غيّر إعدادات بوابة العميل',
+  'dosly.payment': 'سجّل دفع الاشتراك', 'dosly.plan_change': 'غيّر الباقة', 'dosly.suspend': 'أوقف الحساب', 'dosly.unsuspend': 'رجّع الحساب', 'dosly.support_login': 'دخل كدعم فني (للعرض بس)'
 };
 
 export default function ActivityPage() {
@@ -20,7 +22,7 @@ export default function ActivityPage() {
       <ol className="divide-y divide-line px-8 max-md:px-4">
         {data?.items.map(i => (
           <li key={i.id} className="flex justify-between gap-4 py-3">
-            <span><b>{i.userName ?? 'دوسلي'}</b> {LABEL[i.action] ?? i.action}</span>
+            <span><b>{i.userName ?? (i.action.startsWith('post.client') ? 'العميل' : 'فريق دوسلي')}</b> {LABEL[i.action] ?? i.action}</span>
             <span className="num text-sm text-muted">{format(new Date(i.createdAt), 'yyyy-MM-dd HH:mm')}</span>
           </li>
         ))}

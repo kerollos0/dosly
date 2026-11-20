@@ -2,7 +2,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useSWRConfig } from 'swr';
-import { FlaskConical, MessageSquarePlus, X } from 'lucide-react';
+import { Building2, FlaskConical, MessageSquarePlus, X } from 'lucide-react';
 import { api, ROLE_LABEL, type Me, type Role } from '@/lib/api';
 import { Button, ErrorText, Select } from './ui';
 
@@ -66,6 +66,7 @@ export function DemoBar({ me }: { me: Me }) {
     try { await api('/demo/inbound', { body: {} }); setNote('وصلت رسالة جديدة من عميل'); }
     catch (e) { setNote((e as Error).message); }
   }
+  async function openAdmin() { await api('/demo/admin', { method: 'POST' }); router.push('/admin'); }
   async function end() { await api('/demo/end', { method: 'POST' }); router.replace('/login'); }
 
   return (
@@ -78,6 +79,7 @@ export function DemoBar({ me }: { me: Me }) {
         </Select>
       </label>
       <Button size="sm" variant="ghost" onClick={newCustomer}><MessageSquarePlus size={16} aria-hidden />ابعت رسالة من عميل</Button>
+      <Button size="sm" variant="ghost" onClick={openAdmin}><Building2 size={16} aria-hidden />لوحة إدارة دوسلي</Button>
       {note && <span role="status" className="text-muted">{note}</span>}
       <button onClick={end} className="ms-auto flex items-center gap-1 text-muted hover:text-ink"><X size={16} aria-hidden />إنهاء الديمو</button>
     </div>

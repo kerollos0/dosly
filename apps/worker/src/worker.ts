@@ -4,7 +4,7 @@ import { pino } from 'pino';
 import { z } from 'zod';
 import { createDb } from '@dosly/db';
 import { demoFetch, loadKey, publishFacebookPost, publishInstagramPost } from '@dosly/shared';
-import { deleteExpiredDemos, overduePosts, processWhatsAppWebhook, publishPost, simulateInbound, simulateReply, simulateStatus, type Publishers, type Publisher } from '@dosly/core';
+import { DEMO_TTL_HOURS, deleteExpiredDemos, overduePosts, processWhatsAppWebhook, publishPost, simulateInbound, simulateReply, simulateStatus, type Publishers, type Publisher } from '@dosly/core';
 
 const env = z.object({
   DATABASE_URL: z.string().min(1),
@@ -72,7 +72,8 @@ if (demo) {
       case 'cleanup': return { deleted: await deleteExpiredDemos(db) };
       case 'ambient': {
         // Sandboxes opened in the last two hours get an occasional new customer, so the inbox feels alive.
-        const active = await db.agency.findMany({ where: { demoExpiresAt: { gt: new Date() }, createdAt: { gt: new Date(Date.now() - 2 * 3600_000) } }, select: { id: true }, take: 50 });
+        const openedRecently = new Date(Date.now() + (DEMO_TTL_HOURS - 2) * 3600_000); // expiry is set to opening time + TTL
+        const active = await db.agency.findMany({ where: { demoExpiresAt: { gt: openedRecently } }, select: { id: true }, take: 50 });
         for (const a of active) if (Math.random() < 0.5) await simulateInbound(db, pub, { agencyId: a.id });
         return { agencies: active.length };
       }

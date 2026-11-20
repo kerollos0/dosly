@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { inviteSchema, randomToken, ROLES, sha256 } from '@dosly/shared';
+import { inviteSchema, PLANS, randomToken, ROLES, sha256 } from '@dosly/shared';
 import { audit, HttpError, requireAuth, requirePermission } from '../auth.js';
 
 export const teamRoutes: FastifyPluginAsync = async app => {
@@ -16,6 +16,15 @@ export const teamRoutes: FastifyPluginAsync = async app => {
   app.post('/team/invites', async (req, reply) => {
     const auth = requirePermission(req, 'team:manage');
     const input = inviteSchema.parse(req.body);
+    const agency = await db.agency.findUniqueOrThrow({ where: { id: auth.agencyId } });
+    const limit = PLANS[agency.plan].members;
+    if (limit !== null) {
+      const [members, pending] = await Promise.all([
+        db.membership.count({ where: { agencyId: auth.agencyId } }),
+        db.invite.count({ where: { agencyId: auth.agencyId, acceptedAt: null, expiresAt: { gt: new Date() } } })
+      ]);
+      if (members + pending >= limit) throw new HttpError(402, `باقتك فيها ${limit} أعضاء بس، ومعاهم الدعوات اللي لسه متقبلتش.`, 'plan_limit');
+    }
     const token = randomToken();
     const invite = await db.invite.create({ data: { agencyId: auth.agencyId, email: input.email, role: input.role, tokenHash: sha256(token), expiresAt: new Date(Date.now() + 7 * 86400_000) } });
     await audit(db, auth, 'team.invite', 'Invite', invite.id, { email: input.email, role: input.role });

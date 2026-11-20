@@ -104,7 +104,10 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
   const fakeToken = (label: string) => encrypt(`demo-token-${label}-${tag}`, key);
 
   return db.$transaction(async tx => {
-    const agency = await tx.agency.create({ data: { name: 'وكالة نون للتسويق', slug: `demo-${tag}`, demoExpiresAt: new Date(now.getTime() + DEMO_TTL_HOURS * 3600_000) } });
+    const agency = await tx.agency.create({ data: {
+      name: 'وكالة نون للتسويق', slug: `demo-${tag}`, demoExpiresAt: new Date(now.getTime() + DEMO_TTL_HOURS * 3600_000),
+      plan: 'GROWTH', paidUntil: new Date(now.getTime() + 20 * 86400_000), createdAt: new Date(now.getTime() - 60 * 86400_000)
+    } });
     const users = [] as { id: string; role: Role; name: string; clients: number[] }[];
     for (const [i, m] of TEAM.entries()) {
       const user = await tx.user.create({ data: { email: `${m.role.toLowerCase()}${i}.${tag}@demo.dosly.invalid`, name: m.name, passwordHash } });

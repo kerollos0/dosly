@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { acceptInviteSchema, hashPassword, loginSchema, sha256, signupSchema, verifyPassword } from '@dosly/shared';
+import { TRIAL_DAYS, acceptInviteSchema, hashPassword, loginSchema, sha256, signupSchema, verifyPassword } from '@dosly/shared';
 import { createSession, HttpError, requireAuth, SESSION_COOKIE } from '../auth.js';
 
 const slugify = (s: string) => (s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'agency') + '-' + Math.random().toString(36).slice(2, 7);
@@ -15,7 +15,7 @@ export const authRoutes: FastifyPluginAsync = async app => {
     if (await db.user.findUnique({ where: { email: input.email } })) throw new HttpError(409, 'الإيميل ده مسجل قبل كده', 'email_taken');
     const passwordHash = await hashPassword(input.password);
     const { user, agency } = await db.$transaction(async tx => {
-      const agency = await tx.agency.create({ data: { name: input.agencyName, slug: slugify(input.agencyName) } });
+      const agency = await tx.agency.create({ data: { name: input.agencyName, slug: slugify(input.agencyName), trialEndsAt: new Date(Date.now() + TRIAL_DAYS * 86400_000) } });
       const user = await tx.user.create({ data: { email: input.email, name: input.name, passwordHash } });
       await tx.membership.create({ data: { agencyId: agency.id, userId: user.id, role: 'OWNER' } });
       return { user, agency };
@@ -43,8 +43,8 @@ export const authRoutes: FastifyPluginAsync = async app => {
   app.get('/me', async req => {
     const auth = requireAuth(req);
     const user = await db.user.findUniqueOrThrow({ where: { id: auth.userId }, select: { id: true, name: true, email: true } });
-    const agency = await db.agency.findUniqueOrThrow({ where: { id: auth.agencyId }, select: { id: true, name: true, slug: true, demoExpiresAt: true } });
-    return { user, agency, role: auth.role, demo: agency.demoExpiresAt !== null };
+    const agency = await db.agency.findUniqueOrThrow({ where: { id: auth.agencyId }, select: { id: true, name: true, slug: true, demoExpiresAt: true, plan: true, trialEndsAt: true, paidUntil: true, status: true, suspendedReason: true } });
+    return { user, agency, role: auth.role, demo: agency.demoExpiresAt !== null, support: auth.impersonatorId !== null, readOnly: auth.readOnly };
   });
 
   app.post('/invites/accept', limit, async (req, reply) => {

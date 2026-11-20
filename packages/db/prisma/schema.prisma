@@ -23,6 +23,12 @@ model Agency {
   slug        String   @unique
   createdAt   DateTime @default(now())
   demoExpiresAt DateTime? // set only on demo sandboxes; the worker deletes them after this
+  plan        PlanTier @default(TRIAL)
+  trialEndsAt DateTime?
+  paidUntil   DateTime?
+  status      AgencyStatus @default(ACTIVE)
+  suspendedReason String?
+  payments    Payment[]
   memberships Membership[]
   clients     Client[]
   waNumbers   WhatsAppNumber[]
@@ -36,6 +42,57 @@ model Agency {
   invites     Invite[]
 
   @@index([demoExpiresAt])
+  @@index([createdAt])
+}
+
+enum PlanTier {
+  TRIAL
+  STARTER
+  GROWTH
+  AGENCY
+}
+
+enum AgencyStatus {
+  ACTIVE
+  SUSPENDED // read-only: the agency can look but not send or publish
+}
+
+/// A payment recorded by a Dosly admin (InstaPay or bank transfer until online payments exist).
+model Payment {
+  id           String   @id @default(cuid())
+  agencyId     String
+  plan         PlanTier
+  amountEgp    Int
+  months       Int
+  method       String
+  reference    String?
+  recordedById String
+  createdAt    DateTime @default(now())
+  agency       Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  @@index([agencyId, createdAt])
+}
+
+/// Dosly staff. Separate from agency users: own table, own sessions, password + TOTP code.
+model AdminUser {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  totpSecretEnc String  // AES-256-GCM, like Meta tokens
+  createdAt    DateTime @default(now())
+  sessions     AdminSession[]
+}
+
+model AdminSession {
+  id        String   @id // sha256 of the cookie token
+  adminId   String
+  readOnly  Boolean  @default(false) // demo visitors look around but change nothing
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  admin     AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
 }
 
 model User {
@@ -84,6 +141,7 @@ model Session {
   userId    String
   agencyId  String
   expiresAt DateTime
+  impersonatorId String? // a Dosly admin signed in as this user for support; such sessions cannot send or publish
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 

@@ -1,9 +1,10 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { ROLES } from '@dosly/shared';
+import { encrypt, hashPassword, newTotpSecret, randomToken, ROLES } from '@dosly/shared';
 import { seedDemoAgency, simulateInbound } from '@dosly/core';
 import { audit, createSession, HttpError, requireAuth, SESSION_COOKIE } from '../auth.js';
 import { createPortalSession } from '../portal-auth.js';
+import { createAdminSession } from '../admin-auth.js';
 
 /** Registered only when DEMO_MODE=true. Lets anyone open a private sandbox agency with one click. */
 export const demoRoutes: FastifyPluginAsync = async app => {
@@ -61,6 +62,16 @@ export const demoRoutes: FastifyPluginAsync = async app => {
     const user = await db.clientUser.findFirst({ where: { clientId, agencyId: auth.agencyId }, orderBy: { createdAt: 'asc' } });
     if (!user) throw new HttpError(404, 'العميل ده مالوش حد على البوابة', 'not_found');
     await createPortalSession(db, reply, user.id, secure);
+    return { ok: true };
+  });
+
+  // A read-only tour of Dosly's own back office. It lists only demo sandboxes, which hold made-up data.
+  app.post('/demo/admin', { config: { rateLimit: { max: 10, timeWindow: '10 minutes' } } }, async (req, reply) => {
+    await sandboxOf(req);
+    const email = 'demo-admin@demo.dosly.invalid';
+    const admin = await db.adminUser.findUnique({ where: { email } })
+      ?? await db.adminUser.create({ data: { email, name: 'زائر الديمو', passwordHash: await hashPassword(randomToken()), totpSecretEnc: encrypt(newTotpSecret(), key) } });
+    await createAdminSession(db, reply, admin.id, secure, true);
     return { ok: true };
   });
 

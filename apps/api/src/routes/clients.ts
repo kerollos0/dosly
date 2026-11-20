@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { clientSchema } from '@dosly/shared';
+import { clientSchema, PLANS } from '@dosly/shared';
 import { clientReport, monthRange } from '@dosly/core';
 import { assertClientAccess, audit, HttpError, requireAuth, requirePermission, visibleClientIds } from '../auth.js';
 import { createLoginLink } from '../portal-auth.js';
@@ -27,6 +27,11 @@ export const clientRoutes: FastifyPluginAsync = async app => {
   app.post('/clients', async (req, reply) => {
     const auth = requirePermission(req, 'clients:manage');
     const input = clientSchema.parse(req.body);
+    const agency = await db.agency.findUniqueOrThrow({ where: { id: auth.agencyId } });
+    const limit = PLANS[agency.plan].clients;
+    if (limit !== null && (await db.client.count({ where: { agencyId: auth.agencyId, archivedAt: null } })) >= limit) {
+      throw new HttpError(402, `باقتك فيها ${limit} عملاء بس. أرشف عميل أو كبّر الباقة.`, 'plan_limit');
+    }
     const client = await db.client.create({ data: { ...input, agencyId: auth.agencyId } });
     await audit(db, auth, 'client.create', 'Client', client.id, { name: client.name });
     return reply.status(201).send(client);
@@ -84,6 +89,8 @@ export const clientRoutes: FastifyPluginAsync = async app => {
     const auth = requirePermission(req, 'clients:manage');
     const client = await assertClientAccess(db, auth, req.params.id);
     const input = z.object({ name: z.string().trim().min(2).max(80), email: z.email().trim().toLowerCase() }).parse(req.body);
+    const agency = await db.agency.findUniqueOrThrow({ where: { id: auth.agencyId } });
+    if (!PLANS[agency.plan].portal) throw new HttpError(402, 'بوابة العميل مش في باقة البداية. كبّر الباقة عشان تفتحها لعملائك.', 'plan_limit');
     const user = await db.clientUser.upsert({
       where: { clientId_email: { clientId: client.id, email: input.email } },
       create: { ...input, clientId: client.id, agencyId: auth.agencyId },

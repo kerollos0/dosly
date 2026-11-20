@@ -32,6 +32,11 @@ export function bullQueues(connection: { url: string }, demo = false): Queues & 
     async cancelPost(postId) {
       await posts.remove(postJobId(postId)).catch(() => {});
     },
+    async stats() {
+      const all = [webhooks, posts, ...(demoQ ? [demoQ] : [])];
+      const counts = await Promise.all(all.map(q => q.getJobCounts('waiting', 'active', 'delayed', 'failed', 'completed')));
+      return Object.fromEntries(all.map((q, i) => [q.name, counts[i]!]));
+    },
     async close() { await Promise.all([webhooks.close(), posts.close(), demoQ?.close()]); }
   };
 }
