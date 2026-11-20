@@ -75,7 +75,7 @@ export default function TodayPage() {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-8 max-md:p-4">
       <header>
-        <h1 className="font-display text-[28px] font-bold leading-9">{greeting()} يا {first}</h1>
+        <h1 className="font-display text-[28px] font-bold leading-9">{me.demo ? 'أهلًا بيك في دوسلي' : `${greeting()} يا ${first}`}</h1>
         <p className="mt-1 text-lg text-muted">
           {!d ? (error ? '' : 'بنشوف إيه اللي محتاجك…') : tasks.length ? `${count(tasks.length, 'حاجة واحدة محتاجة', 'حاجتين محتاجين', 'حاجات محتاجة', 'حاجة محتاجة')} تتعمل. ابدأ بأول واحدة.` : ''}
         </p>

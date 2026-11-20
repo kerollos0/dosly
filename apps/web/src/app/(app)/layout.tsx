@@ -60,7 +60,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <img src="/dosly-mark.svg" alt="" width={36} height={36} />
             <div className="min-w-0">
               <p className="truncate font-display font-bold">{me.agency.name}</p>
-              <p className="truncate text-xs text-muted">{me.user.name} · {ROLE_LABEL[me.role]}</p>
+              <p className="truncate text-xs text-muted">{me.demo ? 'حساب تجريبي' : me.user.name} · {ROLE_LABEL[me.role]}</p>
             </div>
           </div>
           <nav aria-label="القائمة" className="flex flex-1 flex-col gap-1 px-3 max-md:hidden">
