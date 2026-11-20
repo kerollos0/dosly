@@ -1,7 +1,9 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
-import { CalendarClock, Check, CheckCircle2, PencilLine } from 'lucide-react';
+import Link from 'next/link';
+import { CalendarClock, Check, CheckCircle2, PencilLine, Receipt } from 'lucide-react';
+import { money } from '@/lib/ads';
 import { api, fetcher } from '@/lib/api';
 import { Button, ErrorText, Textarea, cx } from '@/components/ui';
 import { usePortalMe } from '@/lib/portal';
@@ -100,6 +102,7 @@ export default function PortalPosts() {
   const me = usePortalMe();
   const range = useMemo(() => { const n = Date.now(); return `from=${new Date(n - 30 * 86400_000).toISOString()}&to=${new Date(n + 31 * 86400_000).toISOString()}`; }, []);
   const { data, error, mutate } = useSWR<PortalPost[]>(`/portal/posts?${range}`, fetcher as never);
+  const { data: bill } = useSWR<{ due: { currency: string; minor: number }[] }>('/portal/billing', fetcher as never);
   const [notice, setNotice] = useState<string | null>(null);
   const noticeRef = useRef<HTMLParagraphElement>(null);
   if (error && !data) return <ErrorText error="مش قادرين نجيب البوستات دلوقتي. جرّب تفتح الصفحة تاني بعد شوية." />;
@@ -133,6 +136,7 @@ export default function PortalPosts() {
           <p className="flex items-start gap-2 text-lg"><CheckCircle2 size={24} aria-hidden className="mt-0.5 shrink-0 text-success" />مفيش حاجة مطلوبة منك دلوقتي. {me.agency.name} شغالين على حساباتك.</p>
         )}
         {next && !pending.length && <p className="text-muted">البوست الجاي هيتنشر {when(next.scheduledAt)}.</p>}
+        {!!bill?.due.length && <Link href="/portal/billing" className="flex items-center gap-2 self-start font-semibold text-primary underline-offset-2 hover:underline"><Receipt size={18} aria-hidden />عليك فاتورة بـ {bill.due.map(d => money(d.minor, d.currency, true)).join(' و')}. شوفها وادفع</Link>}
       </section>
 
       <p ref={noticeRef} role="status" tabIndex={-1} className={cx('flex scroll-mt-24 focus:outline-none items-center gap-2 rounded-[var(--radius-md)] border border-success/30 bg-success/5 p-3 font-semibold', !notice && 'sr-only')}>

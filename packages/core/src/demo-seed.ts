@@ -4,6 +4,7 @@ import { DEMO_OPENERS, demoName, demoPhone, pick, type DemoKind } from './demo.j
 import { previewText } from './media.js';
 import { seedSocial, type SeedSocialInput } from './demo-social.js';
 import { seedDemoOrders } from './demo-orders.js';
+import { seedDemoBilling } from './demo-billing.js';
 import type { MediaStore } from './media-store.js';
 
 /**
@@ -127,11 +128,13 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
     const owner = users[0]!, manager = users[1]!, writer = users[4]!;
     const mediaMessageIds: string[] = [];
     const adAccountIds: string[] = [];
+    const seeded: { id: string; kind: Exclude<DemoKind, 'general'>; name: string }[] = [];
 
     await tx.quickReply.createMany({ data: QUICK_REPLIES.map(q => ({ ...q, agencyId: agency.id })) });
 
     for (const [ci, c] of CLIENTS.entries()) {
       const client = await tx.client.create({ data: { agencyId: agency.id, name: c.name, notes: c.notes, requiresClientApproval: c.approval, showAdsInPortal: true, createdAt: new Date(now.getTime() - (50 - ci * 7) * 86400_000) } });
+      seeded.push({ id: client.id, kind: c.kind, name: c.name });
       await tx.clientUser.create({ data: { agencyId: agency.id, clientId: client.id, name: c.owner, email: `owner${ci}.${tag}@demo.dosly.invalid`, lastLoginAt: ci % 2 ? null : minutes(60 * 20) } });
       const team = users.filter(u => u.clients.includes(ci));
       await tx.clientAssignment.createMany({ data: team.map(u => ({ clientId: client.id, userId: u.id })) });
@@ -272,6 +275,8 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
 
       await seedSocial(tx, { agencyId: agency.id, clientId: client.id, kind: c.kind, moderatorId: moderator.id, now, fb, ig, posts: published });
     }
+
+    await seedDemoBilling(tx, { agencyId: agency.id, agencyName: agency.name, ownerId: owner.id, clients: seeded, now });
 
     const log = (minAgo: number, userId: string | null, action: string, entity: string, meta?: object) =>
       ({ agencyId: agency.id, userId, action, entity, meta, createdAt: minutes(minAgo) });

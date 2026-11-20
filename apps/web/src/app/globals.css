@@ -42,3 +42,5 @@ body { background: var(--surface); color: var(--ink); font-family: var(--font-sa
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .num { font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+@media print { @page { size: A4; margin: 15mm; } }

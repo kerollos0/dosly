@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import useSWR from 'swr';
-import { AlertTriangle, CalendarCheck, CalendarDays, CheckCircle2, FileClock, Megaphone, MessageCircle, MessagesSquare, PencilLine, PhoneCall, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, BadgeCheck, CalendarCheck, CalendarDays, CheckCircle2, FileClock, Megaphone, MessageCircle, MessagesSquare, PencilLine, PhoneCall, Receipt, type LucideIcon } from 'lucide-react';
 import { fetcher } from '@/lib/api';
 import { useMe } from '@/lib/me';
 import { cx, ErrorText } from '@/components/ui';
@@ -16,6 +16,7 @@ type Today = {
   };
   adAlerts: number | null;
   ordersToCall?: number | null;
+  billing?: { overdue: number; toCheck: number; drafts: number } | null;
 };
 
 type Task = { key: string; icon: LucideIcon; tone: 'bad' | 'warn' | 'info'; title: string; sub?: string; href: string; action: string; extra?: React.ReactNode };
@@ -69,6 +70,17 @@ export default function TodayPage() {
     });
     if (p.failed) tasks.push({ key: 'failed', icon: AlertTriangle, tone: 'bad', href: '/calendar?show=failed', action: 'شوف البوستات', title: count(p.failed, 'بوست واحد منزلش', 'بوستين منزلوش', 'بوستات منزلتش', 'بوست منزلش'), sub: 'افتح البوست وشوف السبب، وبعدين دوس "جرّب تاني".' });
     if (p.draftsToApprove) tasks.push({ key: 'drafts', icon: FileClock, tone: 'warn', href: '/calendar?show=drafts', action: 'راجع المسودات', title: `${count(p.draftsToApprove, 'مسودة واحدة مستنية', 'مسودتين مستنيين', 'مسودات مستنية', 'مسودة مستنية')} موافقتك`, sub: 'الكاتب جهّزها، ومش هتتنشر غير لما توافق عليها.' });
+    if (d.billing?.toCheck) tasks.push({
+      key: 'paid', icon: BadgeCheck, tone: 'warn', href: '/billing?view=check', action: 'أكد الدفع',
+      title: `${count(d.billing.toCheck, 'عميل واحد قال', 'عميلين قالوا', 'عملاء قالوا', 'عميل قال')} إنه حوّل فلوس`,
+      sub: 'بص على حسابك أو محفظتك، ولو الفلوس وصلت دوس «الفلوس وصلت».'
+    });
+    if (d.billing?.overdue) tasks.push({
+      key: 'overdue', icon: Receipt, tone: 'bad', href: '/billing', action: 'شوف الفواتير',
+      title: count(d.billing.overdue, 'فاتورة واحدة متأخرة', 'فاتورتين متأخرين', 'فواتير متأخرة', 'فاتورة متأخرة'),
+      sub: 'عدّى آخر ميعاد للدفع. فكّر العميل برسالة أو مكالمة.'
+    });
+    if (d.billing?.drafts) tasks.push({ key: 'invdrafts', icon: FileClock, tone: 'info', href: '/billing?view=draft', action: 'راجع المسودات', title: `${count(d.billing.drafts, 'فاتورة مسودة', 'فاتورتين مسودة', 'فواتير مسودة', 'فاتورة مسودة')} مستنية تبعتها` });
     if (d.adAlerts) tasks.push({ key: 'ads', icon: Megaphone, tone: 'bad', href: '/ads', action: 'شوف التنبيهات', title: `${count(d.adAlerts, 'تنبيه واحد', 'تنبيهين', 'تنبيهات', 'تنبيه')} في الإعلانات`, sub: 'حساب واقف، أو حملة وقفت، أو ميزانية قرّبت تخلص.' });
   }
   // Problems that cost money or customers first, then the rest, each group in the order above.

@@ -1,7 +1,9 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { sha256 } from '@dosly/shared';
-import { clientReport, monthRange } from '@dosly/core';
+import { addPayment, billingOf, cairoToday, clientReport, monthRange } from '@dosly/core';
+import { PAYMENT_METHODS } from '@dosly/shared';
+import { billing, INVOICE_SELECT, publicInvoice } from './billing.js';
 import { HttpError } from '../auth.js';
 import { createPortalSession, PORTAL_COOKIE, requirePortal, resolvePortalSession } from '../portal-auth.js';
 
@@ -90,5 +92,66 @@ export const portalRoutes: FastifyPluginAsync = async app => {
     const q = z.object({ year: z.coerce.number().int().min(2024).max(2100).default(now.getFullYear()), month: z.coerce.number().int().min(1).max(12).default(now.getMonth() + 1) }).parse(req.query);
     const [from, to] = monthRange(q.year, q.month);
     return clientReport(db, p.clientId, from, to);
+  });
+
+  // ---------- billing: the client's package, invoices and how to pay ----------
+
+  const PORTAL_STATUSES = ['ISSUED', 'PAID', 'VOID'] as const; // drafts are the agency's work in progress
+  const payMethods = async (agencyId: string) => {
+    const b = await billingOf(db, agencyId);
+    return { instapay: b.instapay, instapayLink: b.instapayLink, wallet: b.wallet, walletName: b.walletName, bankName: b.bankName, bankAccountName: b.bankAccountName, iban: b.iban, paypalLink: b.paypalLink, payNote: b.payNote };
+  };
+
+  app.get('/billing', async req => {
+    const p = requirePortal(req);
+    const today = cairoToday();
+    const [subs, invoices, pay] = await Promise.all([
+      db.clientSubscription.findMany({ where: { clientId: p.clientId, status: { in: ['ACTIVE', 'PAUSED'] } }, orderBy: { createdAt: 'asc' },
+        select: { id: true, name: true, priceMinor: true, currency: true, months: true, status: true, nextInvoiceOn: true, package: { select: { description: true, features: true, postsPerMonth: true } } } }),
+      db.invoice.findMany({ where: { clientId: p.clientId, status: { in: [...PORTAL_STATUSES] } }, orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }], take: 36, select: INVOICE_SELECT }),
+      payMethods(p.agencyId)
+    ]);
+    const open = invoices.filter(i => i.status === 'ISSUED');
+    const due: Record<string, number> = {};
+    for (const i of open) due[i.currency] = (due[i.currency] ?? 0) + i.totalMinor - i.paidMinor;
+    return {
+      subscriptions: subs.map(({ package: pk, ...s }) => ({ ...s, description: pk?.description ?? null, features: pk?.features ?? [], postsPerMonth: pk?.postsPerMonth ?? null })),
+      invoices: invoices.map(i => forClient(publicInvoice(i, today))),
+      due: Object.entries(due).map(([currency, minor]) => ({ currency, minor })),
+      pay
+    };
+  });
+
+  // The agency's own notes on payments it recorded are internal; the client keeps only its own.
+  const forClient = <T extends { payments: { note: string | null; reportedBy: string }[] }>(i: T): T => ({ ...i, payments: i.payments.map(x => ({ ...x, note: x.reportedBy === 'client' ? x.note : null })) });
+  const portalInvoice = async (clientId: string, id: string) => {
+    const inv = await db.invoice.findFirst({ where: { id, clientId, status: { in: [...PORTAL_STATUSES] } }, select: INVOICE_SELECT });
+    if (!inv) throw new HttpError(404, 'الفاتورة مش موجودة', 'not_found');
+    return inv;
+  };
+
+  app.get<{ Params: { id: string } }>('/invoices/:id', async req => {
+    const p = requirePortal(req);
+    const inv = await portalInvoice(p.clientId, req.params.id);
+    // The agency sees when the client first opened it ("شاف الفاتورة").
+    if (!inv.viewedAt) await db.invoice.updateMany({ where: { id: inv.id, viewedAt: null }, data: { viewedAt: new Date() } });
+    return { invoice: forClient(publicInvoice(inv)), pay: await payMethods(p.agencyId) };
+  });
+
+  /** "I paid": the agency gets it to check against its bank or wallet before it counts. */
+  app.post<{ Params: { id: string } }>('/invoices/:id/paid', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async req => {
+    const p = requirePortal(req);
+    const inv = await portalInvoice(p.clientId, req.params.id);
+    const input = z.object({
+      method: z.enum(PAYMENT_METHODS).exclude(['CASH']), reference: z.string().trim().max(120).optional(),
+      amountMinor: z.number().int().min(1).optional(), note: z.string().trim().max(300).optional()
+    }).parse(req.body);
+    const amountMinor = input.amountMinor ?? inv.totalMinor - inv.paidMinor;
+    await billing(() => addPayment(db, {
+      invoiceId: inv.id, amountMinor, method: input.method, reference: input.reference || null, note: input.note || null, paidOn: cairoToday(),
+      reportedBy: 'client', clientUserId: p.clientUserId
+    }, { pub: realtime }));
+    await db.auditLog.create({ data: { agencyId: p.agencyId, userId: null, action: 'invoice.client_paid', entity: 'Invoice', entityId: inv.id, meta: { by: 'client', clientUserId: p.clientUserId, name: p.name, amountMinor, method: input.method } } });
+    return { invoice: forClient(publicInvoice(await portalInvoice(p.clientId, inv.id))) };
   });
 };

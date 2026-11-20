@@ -13,3 +13,5 @@ export * from './demo-social.js';
 export * from './ads.js';
 export * from './orders.js';
 export * from './demo-orders.js';
+export * from './billing.js';
+export * from './demo-billing.js';

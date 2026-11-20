@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { can, dayIn, addDays } from '@dosly/shared';
 import { FOLLOW_UP_WHERE, PUBLISHABLE_REVIEW } from '@dosly/core';
 import { requireAuth, visibleClientIds } from '../auth.js';
+import { billingCounts } from './billing.js';
 
 const TZ = 'Africa/Cairo';
 /** Cairo midnight of a local day, as a UTC instant. Egypt has summer time, so the offset is read twice:
@@ -55,6 +56,8 @@ export const todayRoutes: FastifyPluginAsync = async app => {
       // Cash-on-delivery orders nobody confirmed on WhatsApp: a moderator calls the customer.
       can(auth.role, 'orders:view') ? db.storeOrder.count({ where: { ...scope, ...FOLLOW_UP_WHERE } }) : null
     ]);
+    // Money: invoices past their due day and transfers clients said they made. Owners and managers only.
+    const money = can(auth.role, 'billing:manage') ? await billingCounts(db, auth.agencyId) : null;
     return {
       inbox: reply ? { waiting: waitingCount!, mine: mineCount!, oldestWaitingAt: oldestWaiting?.lastInboundAt ?? null } : null,
       comments,
@@ -67,7 +70,8 @@ export const todayRoutes: FastifyPluginAsync = async app => {
         publishingToday
       },
       adAlerts,
-      ordersToCall
+      ordersToCall,
+      billing: money ? { overdue: money.overdue, toCheck: money.toCheck, drafts: money.drafts } : null
     };
   });
 };

@@ -43,6 +43,11 @@ model Agency {
   adAlerts    AdAlert[]
   stores      StoreConnection[]
   orders      StoreOrder[]
+  billing     AgencyBilling?
+  packages    ServicePackage[]
+  subscriptions ClientSubscription[]
+  invoices    Invoice[]
+  invoicePayments InvoicePayment[]
   posts       Post[]
   auditLogs   AuditLog[]
   invites     Invite[]
@@ -116,6 +121,7 @@ model User {
   createdPosts Post[] @relation("postAuthor")
   approvedPosts Post[] @relation("postApprover")
   orderFollowUps StoreOrder[] @relation("orderFollowUp")
+  createdInvoices Invoice[]
 }
 
 model Membership {
@@ -176,6 +182,11 @@ model Client {
   adAlerts    AdAlert[]
   stores      StoreConnection[]
   orders      StoreOrder[]
+  subscriptions ClientSubscription[]
+  invoices    Invoice[]
+  legalName   String?  // the name on the client's invoices, when it differs from the display name
+  taxId       String?  // the client's tax registration number (رقم التسجيل الضريبي), for B2B invoices
+  billingAddress String?
   requiresClientApproval Boolean @default(false) // posts wait for the client's OK in the portal before publishing
   showAdsInPortal Boolean @default(false) // the client sees ad spend and results in the portal report (the agency opts in)
 
@@ -795,4 +806,174 @@ model StoreOrder {
   @@index([contactId])
   @@index([confirmMessageId])
   @@index([clientId, waId])
+}
+
+/**
+ * How the agency bills its own clients: the seller details printed on its invoices, VAT, numbering
+ * and the ways its clients can pay (Egypt: InstaPay, mobile wallets, bank transfer; no card gateway yet).
+ */
+model AgencyBilling {
+  agencyId        String   @id
+  legalName       String?
+  taxId           String?  // رقم التسجيل الضريبي: 9 digits
+  commercialReg   String?  // رقم السجل التجاري
+  address         String?
+  phone           String?
+  vatRegistered   Boolean  @default(false)
+  vatRateBp       Int      @default(1400) // basis points: 1400 = 14%, Egypt's standard rate
+  invoicePrefix   String   @default("INV")
+  nextNumber      Int      @default(1) // the next issued invoice gets this sequence number; only ever goes up
+  dueDays         Int      @default(7)
+  autoIssue       Boolean  @default(true) // recurring invoices go straight to the client; false = they wait as drafts
+  instapay        String?  // InstaPay address (name@instapay) or the mobile number linked to it
+  instapayLink    String?  // https://ipn.eg/S/... link from the InstaPay app
+  wallet          String?  // mobile wallet number (Vodafone Cash, Etisalat Cash, ...)
+  walletName      String?  // the name the wallet is registered under, so the client can check before sending
+  bankName        String?
+  bankAccountName String?
+  iban            String?
+  paypalLink      String?  // https://paypal.me/... for clients abroad
+  payNote         String?  // free text shown under the payment methods
+  updatedAt       DateTime @updatedAt
+  agency          Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+}
+
+/** A service package the agency sells, e.g. "12 posts + inbox management" for 6,000 EGP a month. */
+model ServicePackage {
+  id            String   @id @default(cuid())
+  agencyId      String
+  name          String
+  description   String?
+  features      String[] // what the client gets, one line each
+  priceMinor    Int      // piastres; a single invoice line is capped well below Int range
+  currency      String   @default("EGP")
+  months        Int      @default(1) // billing period: 1, 3, 6 or 12; 0 = one-time
+  postsPerMonth Int?
+  archivedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  agency        Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  subscriptions ClientSubscription[]
+
+  @@index([agencyId])
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED  // no new invoices until resumed
+  ENDED
+}
+
+/**
+ * A client on a package. Name, price and period are copied from the package when it starts, so
+ * changing a package later never changes what an existing client pays. Periods are counted from
+ * startOn (cycle n starts startOn + n * months), so a start on the 31st stays at month end.
+ */
+model ClientSubscription {
+  id            String   @id @default(cuid())
+  agencyId      String
+  clientId      String
+  packageId     String?
+  name          String
+  priceMinor    Int
+  currency      String   @default("EGP")
+  months        Int      // >= 1
+  startOn       String   // YYYY-MM-DD, Cairo
+  cycles        Int      @default(0) // periods already invoiced
+  nextInvoiceOn String?  // YYYY-MM-DD the next period starts and is invoiced; null when ended
+  status        SubscriptionStatus @default(ACTIVE)
+  endedAt       DateTime?
+  createdAt     DateTime @default(now())
+  agency        Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  package       ServicePackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  invoices      Invoice[]
+
+  @@index([status, nextInvoiceOn])
+  @@index([clientId])
+  @@index([agencyId])
+}
+
+enum InvoiceStatus {
+  DRAFT   // only the agency sees it; no number yet
+  ISSUED  // numbered and visible to the client; unpaid or partly paid (overdue = past dueOn)
+  PAID
+  VOID    // cancelled after issue; keeps its number so the sequence has no holes
+}
+
+/**
+ * An invoice from the agency to one of its clients. Money is in minor units (piastres). Once issued
+ * the lines, totals and both parties' details are frozen; only payments and the ETA id change.
+ */
+model Invoice {
+  id             String   @id @default(cuid())
+  agencyId       String
+  clientId       String
+  subscriptionId String?
+  seq            Int?     // per agency, assigned at issue
+  number         String?  // prefix-year-seq, e.g. INV-2026-0007
+  status         InvoiceStatus @default(DRAFT)
+  currency       String   @default("EGP")
+  issueOn        String?  // YYYY-MM-DD, Cairo
+  dueOn          String?
+  periodFrom     String?  // the service period a package invoice covers
+  periodTo       String?
+  items          Json     // [{ description, qty, unitMinor }]
+  subtotalMinor  Int
+  discountMinor  Int      @default(0)
+  vatRateBp      Int      @default(0)
+  vatMinor       Int      @default(0)
+  totalMinor     Int
+  paidMinor      Int      @default(0) // sum of confirmed payments
+  notes          String?
+  seller         Json?    // AgencyBilling snapshot at issue
+  buyer          Json?    // client name, legal name, tax id, address at issue
+  etaUuid        String?  // the UUID the Egyptian Tax Authority gave this invoice, pasted after submitting it there
+  issuedAt       DateTime?
+  paidAt         DateTime?
+  voidedAt       DateTime?
+  voidReason     String?
+  viewedAt       DateTime? // the client first opened it in the portal
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  agency         Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  subscription   ClientSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  createdBy      User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  payments       InvoicePayment[]
+
+  @@unique([agencyId, seq])
+  @@unique([subscriptionId, periodFrom]) // one invoice per package period, even if the job runs twice
+  @@index([agencyId, status, dueOn])
+  @@index([clientId, createdAt])
+}
+
+enum PaymentState {
+  PENDING    // the client says they paid; the agency has not checked yet
+  CONFIRMED
+  REJECTED
+}
+
+/** Money received against an invoice: recorded by the agency, or reported by the client and then checked. */
+model InvoicePayment {
+  id           String   @id @default(cuid())
+  agencyId     String
+  invoiceId    String
+  amountMinor  Int
+  method       String   // INSTAPAY | WALLET | BANK | CASH | PAYPAL | OTHER
+  reference    String?  // transfer reference or the sender's number/name
+  paidOn       String   // YYYY-MM-DD
+  state        PaymentState @default(CONFIRMED)
+  reportedBy   String   // agency | client
+  clientUserId String?
+  recordedById String?
+  note         String?
+  decidedAt    DateTime?
+  createdAt    DateTime @default(now())
+  agency       Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  invoice      Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@index([agencyId, state])
 }

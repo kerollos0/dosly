@@ -4,7 +4,7 @@ import { pino } from 'pino';
 import { z } from 'zod';
 import { createDb, Prisma } from '@dosly/db';
 import { demoFetch, loadKey, publishFacebookPost, publishInstagramPost } from '@dosly/shared';
-import { adAccountsDue, processStoreWebhook, simulateConfirmPress, simulateOrder, sweepConfirmations, type StoreWebhookPayload, syncAdAccount, DEMO_TTL_HOURS, deleteExpiredDemos, fetchInboundMedia, localMediaStore, markMediaFailed, markSendFailed, overduePosts, pendingInboundMedia, PermanentMediaError, processMetaWebhook, publishPost, sendQueuedMessage, simulateComment, simulateInbound, simulateSocialMessage, simulateReply, simulateStatus, syncTemplates, type MediaDeps, type Publishers, type Publisher } from '@dosly/core';
+import { generateDueInvoices, adAccountsDue, processStoreWebhook, simulateConfirmPress, simulateOrder, sweepConfirmations, type StoreWebhookPayload, syncAdAccount, DEMO_TTL_HOURS, deleteExpiredDemos, fetchInboundMedia, localMediaStore, markMediaFailed, markSendFailed, overduePosts, pendingInboundMedia, PermanentMediaError, processMetaWebhook, publishPost, sendQueuedMessage, simulateComment, simulateInbound, simulateSocialMessage, simulateReply, simulateStatus, syncTemplates, type MediaDeps, type Publishers, type Publisher } from '@dosly/core';
 import type { Job } from 'bullmq';
 
 const env = z.object({
@@ -146,8 +146,23 @@ const orders = new Worker('orders', async job => {
 }, { connection, concurrency: 1 });
 await ordersQueue.upsertJobScheduler('orders-sweep', { every: 60_000 }, { name: 'sweep' });
 
-const workers = [webhooks, posts, media, ads, orders];
-const queues = [sweeper, mediaQueue, adsQueue, ordersQueue];
+// Billing: every hour, package periods that started get their invoice (Cairo days; runs twice safely).
+const billingQueue = new Queue('billing', { connection });
+const billingWorker = new Worker('billing', async job => {
+  if (job.name !== 'recurring') return;
+  let total = { created: 0, issued: 0 };
+  for (let round = 0; round < 20; round++) {
+    const r = await generateDueInvoices(db, { pub, limit: 200, onError: (id, err) => log.error({ subscriptionId: id, err: (err as Error).message }, 'Recurring invoice failed') });
+    total = { created: total.created + r.created, issued: total.issued + r.issued };
+    if (r.created === 0) break;
+  }
+  if (total.created) log.info(total, 'Recurring invoices created');
+  return total;
+}, { connection, concurrency: 1 });
+await billingQueue.upsertJobScheduler('billing-recurring', { every: 60 * 60_000 }, { name: 'recurring' });
+
+const workers = [webhooks, posts, media, ads, orders, billingWorker];
+const queues = [sweeper, mediaQueue, adsQueue, ordersQueue, billingQueue];
 if (demoQueue) {
   queues.push(demoQueue);
   await demoQueue.upsertJobScheduler('demo-cleanup', { every: 10 * 60_000 }, { name: 'cleanup' });

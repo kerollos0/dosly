@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
-import { CalendarDays, Menu, Sun, X, History, LogOut, Megaphone, MessageCircle, MessagesSquare, Plug, Users, Briefcase, ShoppingBag } from 'lucide-react';
+import { CalendarDays, Menu, Sun, X, History, LogOut, Megaphone, MessageCircle, MessagesSquare, Plug, Receipt, Users, Briefcase, ShoppingBag } from 'lucide-react';
 import { api, ApiError, can, fetcher, ROLE_LABEL, type Me } from '@/lib/api';
 import { cx } from '@/components/ui';
 import { MeContext } from '@/lib/me';
@@ -22,6 +22,7 @@ const NAV = [
   { href: '/calendar', label: 'البوستات', icon: CalendarDays, show: () => true },
   { href: '/ads', label: 'الإعلانات', icon: Megaphone, show: (m: Me) => can.manage(m.role) },
   { href: '/clients', label: 'العملاء', icon: Briefcase, show: () => true },
+  { href: '/billing', label: 'الفواتير', icon: Receipt, show: (m: Me) => can.manage(m.role) },
   { href: '/channels', label: 'القنوات', icon: Plug, show: (m: Me) => can.manage(m.role) },
   { href: '/team', label: 'الفريق', icon: Users, show: () => true },
   { href: '/activity', label: 'سجل النشاط', icon: History, show: (m: Me) => can.manage(m.role) }
@@ -35,6 +36,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useNotifications(me?.user.id);
   const { data: comments } = useSWR<{ openCount: number }>(me ? '/comments?limit=1' : null, fetcher as never, { refreshInterval: 60_000 });
   const { data: adAlerts } = useSWR<{ count: number }>(me && can.manage(me.role) ? '/ads/alerts' : null, fetcher as never, { refreshInterval: 5 * 60_000 });
+  const { data: bill } = useSWR<{ overdue: number; toCheck: number }>(me && can.manage(me.role) ? '/billing/counts' : null, fetcher as never, { refreshInterval: 5 * 60_000 });
   const { data: orders } = useSWR<{ followUp: number; stores: number }>(me && can.reply(me.role) ? '/orders/counts' : null, fetcher as never, { refreshInterval: 5 * 60_000 });
 
   // On a phone: four pages in a bottom bar where the thumb is, the rest behind "المزيد".
@@ -44,7 +46,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (!me) return <div className="grid h-full place-items-center text-muted">{error && !(error instanceof ApiError && error.status === 401) ? 'مش قادرين نوصل للسيرفر. جرّب تاني بعد شوية.' : 'بيحمّل…'}</div>;
 
   const items = NAV.filter(n => n.show(me, orders?.stores));
-  const badge = (href: string, active: boolean) => href === '/orders' && orders?.followUp
+  const money = (bill?.overdue ?? 0) + (bill?.toCheck ?? 0);
+  const badge = (href: string, active: boolean) => href === '/billing' && money
+    ? <span className={cx('num rounded-full px-1.5 text-xs font-semibold', active ? 'bg-on-primary/20' : 'bg-danger text-white')}>{money}<span className="sr-only"> محتاجة متابعة</span></span>
+    : href === '/orders' && orders?.followUp
     ? <span className={cx('num rounded-full px-1.5 text-xs font-semibold', active ? 'bg-on-primary/20' : 'bg-warning text-white')}>{orders.followUp}<span className="sr-only"> محتاجة مكالمة</span></span>
     : href === '/ads' && adAlerts?.count
     ? <span className={cx('num rounded-full px-1.5 text-xs font-semibold', active ? 'bg-on-primary/20' : 'bg-danger text-white')}>{adAlerts.count}<span className="sr-only"> تنبيهات</span></span>
@@ -57,10 +62,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <MeContext.Provider value={me}>
       <div className="flex h-full flex-col">
-      {me.demo && <DemoBar me={me} />}
-      <AccountBanner me={me} />
+      <div className="print:hidden">{me.demo && <DemoBar me={me} />}<AccountBanner me={me} /></div>
       <div className="flex min-h-0 flex-1 max-md:flex-col">
-        <aside className="flex w-60 shrink-0 flex-col border-e border-line bg-surface-2 max-md:w-full max-md:border-e-0 max-md:border-b">
+        <aside className="print:hidden flex w-60 shrink-0 flex-col border-e border-line bg-surface-2 max-md:w-full max-md:border-e-0 max-md:border-b">
           <div className="flex items-center gap-3 px-5 py-5 max-md:py-3">
             <img src="/dosly-mark.svg" alt="" width={36} height={36} />
             <div className="min-w-0">
@@ -84,9 +88,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <LogOut size={20} strokeWidth={1.75} aria-hidden />خروج
           </button>
         </aside>
-        <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+        <main className="min-w-0 flex-1 overflow-y-auto print:overflow-visible">{children}</main>
       </div>
-      <nav aria-label="القائمة" className="grid shrink-0 grid-cols-5 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] md:hidden">
+      <nav aria-label="القائمة" className="print:hidden grid shrink-0 grid-cols-5 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] md:hidden">
         {bottom.map(n => {
           const active = path.startsWith(n.href);
           return (
@@ -96,8 +100,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </Link>
           );
         })}
-        <button type="button" aria-expanded={more} aria-controls="more-menu" onClick={() => setMore(m => !m)} className={cx('flex h-16 flex-col items-center justify-center gap-1 text-xs font-semibold focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary', more || rest.some(n => path.startsWith(n.href)) ? 'text-primary' : 'text-muted')}>
+        <button type="button" aria-expanded={more} aria-controls="more-menu" onClick={() => setMore(m => !m)} className={cx('relative flex h-16 flex-col items-center justify-center gap-1 text-xs font-semibold focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary', more || rest.some(n => path.startsWith(n.href)) ? 'text-primary' : 'text-muted')}>
           {more ? <X size={22} aria-hidden /> : <Menu size={22} aria-hidden />}المزيد
+          {!more && rest.some(n => badge(n.href, false)) && <span className="absolute top-2.5 start-1/2 ms-2 size-2.5 rounded-full bg-danger"><span className="sr-only">فيه حاجات محتاجة متابعة</span></span>}
         </button>
       </nav>
       {more && (

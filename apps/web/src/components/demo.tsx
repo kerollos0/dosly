@@ -2,7 +2,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useSWRConfig } from 'swr';
-import { Building2, FlaskConical, MessageCircle, MessageSquarePlus, MessagesSquare, ShoppingBag, X } from 'lucide-react';
+import { Building2, FlaskConical, MessageCircle, MessageSquarePlus, MessagesSquare, Receipt, ShoppingBag, X } from 'lucide-react';
 import { api, ROLE_LABEL, type Me, type Role } from '@/lib/api';
 import { Button, cx, ErrorText, Select } from './ui';
 
@@ -78,6 +78,11 @@ export function DemoBar({ me }: { me: Me }) {
     try { await api('/demo/order', { body: {} }); setNote('وصل طلب جديد من المتجر، ورسالة التأكيد راحت للعميل على واتساب'); }
     catch (e) { setNote((e as Error).message); }
   }
+  async function clientPays() {
+    setNote(null);
+    try { await api('/demo/client-pays', { method: 'POST' }); setNote('عميل قال إنه حوّل فلوس فاتورة. افتح الفواتير وأكد إن الفلوس وصلت'); }
+    catch (e) { setNote((e as Error).message); }
+  }
   async function openAdmin() { await api('/demo/admin', { method: 'POST' }); router.push('/admin'); }
   async function end() { await api('/demo/end', { method: 'POST' }); router.replace('/login'); }
 
@@ -96,6 +101,7 @@ export function DemoBar({ me }: { me: Me }) {
       <Button size="sm" variant="ghost" onClick={() => social('comment')}><MessagesSquare size={16} aria-hidden />كومنت جديد</Button>
       <Button size="sm" variant="ghost" onClick={() => social('message')}><MessageCircle size={16} aria-hidden />رسالة ماسنجر/إنستجرام</Button>
       <Button size="sm" variant="ghost" onClick={newOrder}><ShoppingBag size={16} aria-hidden />طلب جديد من المتجر</Button>
+      {(me.role === 'OWNER' || me.role === 'MANAGER') && <Button size="sm" variant="ghost" onClick={clientPays}><Receipt size={16} aria-hidden />عميل دفع فاتورة</Button>}
       <Button size="sm" variant="ghost" onClick={openAdmin}><Building2 size={16} aria-hidden />لوحة إدارة دوسلي</Button>
       <button onClick={end} className="ms-auto flex items-center gap-1 text-muted hover:text-ink"><X size={16} aria-hidden />إنهاء الديمو</button>
       </div>

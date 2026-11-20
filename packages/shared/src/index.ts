@@ -12,3 +12,4 @@ export * from './meta-social.js';
 export * from './meta-ads.js';
 export * from './demo-ads.js';
 export * from './stores.js';
+export * from './billing.js';

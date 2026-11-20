@@ -10,7 +10,9 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
     body: init.form ?? (init.body ? JSON.stringify(init.body) : undefined)
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.message ?? 'حصلت مشكلة. جرّب تاني.', data.error ?? 'error');
+  // A validation error names the field in Arabic when we wrote the message; prefer it to the generic line.
+  const issue = (data.issues as { message?: string }[] | undefined)?.find(i => i.message && /[\u0600-\u06FF]/.test(i.message))?.message;
+  if (!res.ok) throw new ApiError(res.status, issue ?? data.message ?? 'حصلت مشكلة. جرّب تاني.', data.error ?? 'error');
   return data as T;
 }
 

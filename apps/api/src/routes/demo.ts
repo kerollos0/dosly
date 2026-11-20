@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { encrypt, hashPassword, newTotpSecret, randomToken, ROLES } from '@dosly/shared';
-import { syncAdAccount, seedDemoAgency, simulateComment, simulateInbound, simulateOrder, simulateSocialMessage } from '@dosly/core';
+import { simulateClientPayment, syncAdAccount, seedDemoAgency, simulateComment, simulateInbound, simulateOrder, simulateSocialMessage } from '@dosly/core';
 import { audit, createSession, HttpError, requireAuth, SESSION_COOKIE } from '../auth.js';
 import { createPortalSession } from '../portal-auth.js';
 import { createAdminSession } from '../admin-auth.js';
@@ -79,6 +79,14 @@ export const demoRoutes: FastifyPluginAsync = async app => {
     const orderId = await simulateOrder({ db, pub: realtime, onSend: id => app.deps.queues.sendMessage(id) }, { agencyId: auth.agencyId, clientId });
     if (!orderId) throw new HttpError(404, 'مفيش متجر مربوط للعميل ده', 'not_found');
     return { ok: true, orderId };
+  });
+
+  // A client reports a transfer on one of their open invoices, as if they pressed "أنا دفعت" in the portal.
+  app.post('/demo/client-pays', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async req => {
+    const { auth } = await sandboxOf(req);
+    const invoiceId = await simulateClientPayment(db, realtime, auth.agencyId);
+    if (!invoiceId) throw new HttpError(404, 'مفيش فواتير مفتوحة مستنية دفع', 'not_found');
+    return { ok: true, invoiceId };
   });
 
   // Opens the client portal as that client's owner, in the same browser, without a sign-in link.

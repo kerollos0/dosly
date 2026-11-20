@@ -1,5 +1,5 @@
 'use client';
-import { forwardRef, type ButtonHTMLAttributes, type Ref, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import { forwardRef, useEffect, useRef, type ButtonHTMLAttributes, type Ref, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 
@@ -60,13 +60,25 @@ export function ErrorText({ error }: { error?: string | null }) {
 }
 
 export function Modal({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    if (!open) return;
+    const back = document.activeElement as HTMLElement | null;
+    // Focus moves into the dialog, Escape closes it, and focus returns to what opened it.
+    requestAnimationFrame(() => { if (!box.current?.contains(document.activeElement)) (box.current?.querySelector<HTMLElement>('input,select,textarea,button:not([aria-label="إغلاق"])') ?? box.current)?.focus(); });
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current(); };
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('keydown', key); back?.focus?.(); };
+  }, [open]);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={e => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-modal="true" aria-label={title} className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[var(--radius-lg)] bg-surface p-6 shadow-xl">
+      <div ref={box} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} className="max-h-[90vh] focus:outline-none w-full max-w-lg overflow-y-auto rounded-[var(--radius-lg)] bg-surface p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="font-display text-[22px] font-semibold">{title}</h2>
-          <button onClick={onClose} aria-label="إغلاق" className="rounded p-1 text-muted hover:bg-surface-2">✕</button>
+          <button onClick={onClose} aria-label="إغلاق" className="grid size-11 place-items-center rounded-[var(--radius-md)] text-muted hover:bg-surface-2">✕</button>
         </div>
         {children}
       </div>
