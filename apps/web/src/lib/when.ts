@@ -44,3 +44,22 @@ export function count(n: number, one: string, two: string, few: string, many: st
   const last = n % 100;
   return `${new Intl.NumberFormat('ar-EG-u-nu-latn').format(n)} ${last >= 3 && last <= 10 ? few : many}`;
 }
+
+/** "من 5 دقايق", "من ساعتين", "من 3 أيام". */
+export function ago(iso: string, now = Date.now()) {
+  const min = Math.max(0, Math.round((now - Date.parse(iso)) / 60_000));
+  if (min < 1) return 'دلوقتي';
+  if (min < 60) return `من ${count(min, 'دقيقة', 'دقيقتين', 'دقايق', 'دقيقة')}`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `من ${count(h, 'ساعة', 'ساعتين', 'ساعات', 'ساعة')}`;
+  return `من ${count(Math.round(h / 24), 'يوم', 'يومين', 'أيام', 'يوم')}`;
+}
+
+/** "صباح الخير" until noon in Cairo, "مساء الخير" after. */
+export const greeting = (d = new Date()) => (cairo(d).hour < 12 ? 'صباح الخير' : 'مساء الخير');
+
+const KEY = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
+/** "2026-11-20": the Cairo calendar day of an instant. */
+export const cairoDayKey = (d: Date) => KEY.format(d);
+/** "12 ديسمبر", in Cairo. */
+export const dayMonth = (d: Date) => DAY_MONTH.format(d);

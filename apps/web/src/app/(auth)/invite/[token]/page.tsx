@@ -15,7 +15,7 @@ export default function InvitePage() {
     setBusy(true); setError(null);
     try {
       await api('/invites/accept', { body: { token, name: f.get('name'), password: f.get('password') } });
-      router.replace('/inbox');
+      router.replace('/today');
     } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   }
   return (

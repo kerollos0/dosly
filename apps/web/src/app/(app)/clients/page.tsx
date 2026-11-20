@@ -38,7 +38,7 @@ export default function ClientsPage() {
           <li key={c.id} className="flex flex-col gap-3 rounded-[var(--radius-md)] border border-line p-4">
             <div className="flex items-start justify-between gap-2">
               <h2 className="text-lg font-semibold">{c.name}</h2>
-              {c.unreadConversations > 0 && <Pill tone="sun"><span className="num">{c.unreadConversations}</span> مستني رد</Pill>}
+              {c.unreadConversations > 0 && <Pill tone="sun"><span className="num">{c.unreadConversations}</span> {c.unreadConversations === 1 ? 'مستني رد' : 'مستنيين رد'}</Pill>}
             </div>
             {c.notes && <p className="text-sm text-muted">{c.notes}</p>}
             <div className="flex flex-wrap gap-2">
@@ -48,8 +48,8 @@ export default function ClientsPage() {
             </div>
             <p className="text-sm"><span className="text-muted">الفريق:</span> {c.assigneeIds.map(nameOf).filter(Boolean).join('، ') || 'مفيش حد متعين'}</p>
             <div className="mt-auto flex flex-wrap gap-2">
-              {manage && <Button size="sm" variant="ghost" onClick={() => setAssigning(c)}>تعيين الفريق</Button>}
-              <Button size="sm" variant="ghost" onClick={() => setPortal(c)}>بوابة العميل</Button>
+              {manage && <Button size="sm" variant="ghost" onClick={() => setAssigning(c)}>مين شغال عليه</Button>}
+              <Button size="sm" variant="ghost" onClick={() => setPortal(c)}>صفحة العميل للموافقة</Button>
               <Link href={`/clients/${c.id}/report`} className="inline-flex h-8 items-center rounded-[var(--radius-md)] border border-line px-3 text-sm font-semibold hover:bg-surface-2">التقرير</Link>
             </div>
           </li>

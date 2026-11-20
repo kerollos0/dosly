@@ -19,7 +19,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const { data: me, error } = useSWR<{ name: string; readOnly: boolean }>('/admin/me', fetcher as never);
   useEffect(() => { if (error instanceof ApiError && error.status === 401) router.replace('/admin/login'); }, [error, router]);
   if (!me) return <div className="grid h-full place-items-center text-muted">بيحمّل…</div>;
-  async function logout() { await api('/admin/auth/logout', { method: 'POST' }); router.replace(me?.readOnly ? '/inbox' : '/admin/login'); }
+  async function logout() { await api('/admin/auth/logout', { method: 'POST' }); router.replace(me?.readOnly ? '/today' : '/admin/login'); }
   return (
     <div className="flex h-full flex-col">
       {me.readOnly && <p className="border-b border-sun/60 bg-sun/15 px-4 py-2 text-center text-sm font-semibold">ديمو: دي لوحة إدارة دوسلي نفسها (ليك إنت كصاحب المنتج). للعرض بس، ومش بتظهر غير وكالات الديمو. <Link href="/inbox" className="text-faience-ink underline">ارجع للوكالة</Link></p>}

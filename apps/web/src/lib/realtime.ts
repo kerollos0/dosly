@@ -10,6 +10,7 @@ export function useRealtime(enabled: boolean) {
   const { mutate } = useSWRConfig();
   useEffect(() => {
     if (!enabled) return;
+    let todayTimer: ReturnType<typeof setTimeout> | undefined;
     const socket = io({ path: '/socket.io', withCredentials: true, transports: ['polling', 'websocket'] }); // polling first works through any proxy, then upgrades
     socket.on('event', (e: RealtimeEvent) => {
       // Other parts of the app (notifications) listen without opening a second socket.
@@ -21,7 +22,11 @@ export function useRealtime(enabled: boolean) {
       if (e.type.startsWith('comment')) void mutate(k => typeof k === 'string' && k.includes('/comments')); // includes the paged list's $inf$ key
       if (e.type.startsWith('ads.')) void mutate(k => typeof k === 'string' && k.startsWith('/ads'));
       if (e.type.startsWith('post')) void mutate(k => typeof k === 'string' && k.startsWith('/posts'));
+      // The "today" screen counts these. Delivery receipts don't change it, and a burst refreshes once.
+      if (/^(message\.new|conversation\.|comment\.|ads\.alert|post\.)/.test(e.type) && !todayTimer) {
+        todayTimer = setTimeout(() => { todayTimer = undefined; void mutate('/today'); }, 2000);
+      }
     });
-    return () => { socket.disconnect(); };
+    return () => { clearTimeout(todayTimer); socket.disconnect(); };
   }, [enabled, mutate]);
 }

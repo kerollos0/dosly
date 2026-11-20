@@ -114,7 +114,7 @@ export default function AgencyDetail({ params }: { params: Promise<{ id: string 
         </form>
       </Modal>
       <Modal open={action === 'support'} onClose={() => setAction(null)} title="دخول كدعم فني">
-        <form className="flex flex-col gap-3" onSubmit={e => { const f = form(e); void run('impersonate', { reason: f.reason }, () => router.push('/inbox')); }}>
+        <form className="flex flex-col gap-3" onSubmit={e => { const f = form(e); void run('impersonate', { reason: f.reason }, () => router.push('/today')); }}>
           <p className="text-sm text-muted">هتشوف اللوحة زي صاحب الوكالة بالظبط لمدة ساعة، من غير ما تقدر تبعت أو تنشر. الدخول ده بيتسجل في سجل نشاط الوكالة.</p>
           <Field label="السبب" id="r2"><Input id="r2" name="reason" required minLength={3} placeholder="مثلًا: بيقول الرسايل مش بتوصل" /></Field>
           <ErrorText error={error} /><Button>ادخل</Button>

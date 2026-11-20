@@ -19,7 +19,7 @@ const CHANNELS = [{ v: '', l: 'كل القنوات' }, { v: 'WHATSAPP', l: 'وا
 const MB = 1024 * 1024;
 const contactLabel = (c: Conversation['contact']) => c.name ?? (c.username ? `@${c.username}` : c.waId ? `+${c.waId}` : 'عميل');
 
-const STATUS = [{ v: 'OPEN', l: 'مفتوحة' }, { v: 'PENDING', l: 'مستنية' }, { v: 'CLOSED', l: 'مقفولة' }] as const;
+const STATUS = [{ v: 'OPEN', l: 'مفتوحة' }, { v: 'PENDING', l: 'مستنية العميل' }, { v: 'CLOSED', l: 'خلصت' }] as const;
 
 export default function InboxPage() {
   // useSearchParams needs a Suspense boundary so the page can still be prerendered.
@@ -68,7 +68,7 @@ function Inbox() {
                 className={cx('flex-1 rounded-[var(--radius-sm)] py-1.5 text-sm font-semibold', status === s.v ? 'bg-surface text-ink shadow-sm' : 'text-muted')}>{s.l}</button>
             ))}
           </div>
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={mine} onChange={e => setMine(e.target.checked)} /> المتعينة ليّا بس</label>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={mine} onChange={e => setMine(e.target.checked)} /> بتاعتي بس</label>
         </div>
         <ul className="min-h-0 flex-1 overflow-y-auto">
           {list?.items.length === 0 && <li className="p-6 text-center text-muted">مفيش محادثات هنا.</li>}

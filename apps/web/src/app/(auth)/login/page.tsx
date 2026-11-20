@@ -17,7 +17,7 @@ export default function LoginPage() {
     setBusy(true); setError(null);
     try {
       await api('/auth/login', { body: { email: f.get('email'), password: f.get('password') } });
-      router.replace('/inbox');
+      router.replace('/today');
     } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   }
   return (

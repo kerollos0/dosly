@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useSWRConfig } from 'swr';
 import { Building2, FlaskConical, MessageCircle, MessageSquarePlus, MessagesSquare, X } from 'lucide-react';
 import { api, ROLE_LABEL, type Me, type Role } from '@/lib/api';
-import { Button, ErrorText, Select } from './ui';
+import { Button, cx, ErrorText, Select } from './ui';
 
 const ROLES: Role[] = ['OWNER', 'MANAGER', 'MODERATOR', 'WRITER'];
 const ROLE_HINT: Record<Role, string> = {
@@ -29,7 +29,7 @@ export function DemoStart() {
   const [error, setError] = useState<string | null>(null);
   async function start() {
     setBusy(true); setError(null);
-    try { await api('/demo/start', { body: { role } }); router.replace('/inbox'); }
+    try { await api('/demo/start', { body: { role } }); router.replace('/today'); }
     catch (e) { setError((e as Error).message); setBusy(false); }
   }
   return (
@@ -56,6 +56,8 @@ export function DemoBar({ me }: { me: Me }) {
   const router = useRouter();
   const { mutate } = useSWRConfig();
   const [note, setNote] = useState<string | null>(null);
+  // On a phone the tools fold behind one button, so the bar doesn't eat a third of the screen.
+  const [open, setOpen] = useState(false);
 
   async function switchRole(role: Role) {
     await api('/demo/switch', { body: { role } });
@@ -77,6 +79,8 @@ export function DemoBar({ me }: { me: Me }) {
   return (
     <div role="region" aria-label="أدوات الديمو" className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-sun/60 bg-sun/15 px-4 py-2 text-sm">
       <span className="flex items-center gap-2 font-semibold"><FlaskConical size={16} aria-hidden />ديمو: محدش حقيقي بيستلم أي رسالة أو بوست هنا</span>
+      <button type="button" aria-expanded={open} aria-controls="demo-tools" onClick={() => setOpen(o => !o)} className="ms-auto flex h-9 items-center gap-1 rounded-[var(--radius-md)] border border-sun/60 px-3 font-semibold md:hidden">{open ? 'اخفي الأدوات' : 'أدوات الديمو'}</button>
+      <div id="demo-tools" className={cx('flex flex-wrap items-center gap-x-4 gap-y-2 md:contents', !open && 'max-md:hidden')}>
       <label className="flex items-center gap-2">
         <span className="whitespace-nowrap text-muted">شوف الشاشة بصفتك</span>
         <Select className="h-8 w-auto py-0 text-sm" value={me.role} onChange={e => switchRole(e.target.value as Role)}>
@@ -87,8 +91,9 @@ export function DemoBar({ me }: { me: Me }) {
       <Button size="sm" variant="ghost" onClick={() => social('comment')}><MessagesSquare size={16} aria-hidden />كومنت جديد</Button>
       <Button size="sm" variant="ghost" onClick={() => social('message')}><MessageCircle size={16} aria-hidden />رسالة ماسنجر/إنستجرام</Button>
       <Button size="sm" variant="ghost" onClick={openAdmin}><Building2 size={16} aria-hidden />لوحة إدارة دوسلي</Button>
-      {note && <span role="status" className="text-muted">{note}</span>}
       <button onClick={end} className="ms-auto flex items-center gap-1 text-muted hover:text-ink"><X size={16} aria-hidden />إنهاء الديمو</button>
+      </div>
+      {note && <span role="status" className="text-muted">{note}</span>}
     </div>
   );
 }

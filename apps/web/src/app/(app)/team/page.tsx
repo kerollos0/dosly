@@ -11,6 +11,8 @@ export default function TeamPage() {
   const [inviting, setInviting] = useState(false);
   const [link, setLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Removing someone takes a second tap, so a slip doesn't lock a teammate out.
+  const [removing, setRemoving] = useState<string | null>(null);
   const manage = can.manage(me.role);
 
   async function invite(e: React.FormEvent<HTMLFormElement>) {
@@ -41,7 +43,9 @@ export default function TeamPage() {
                       </Select>
                     ) : <Pill tone="info">{ROLE_LABEL[m.role]}</Pill>}
                   </td>
-                  <td className="text-end">{manage && m.role !== 'OWNER' && m.id !== me.user.id && <Button size="sm" variant="danger" onClick={() => act(() => api(`/team/${m.id}`, { method: 'DELETE' }))}>شيل</Button>}</td>
+                  <td className="text-end">{manage && m.role !== 'OWNER' && m.id !== me.user.id && (removing === m.id
+                    ? <span className="inline-flex items-center gap-2"><span className="text-sm">تشيل {m.name.split(' ')[0]} من الفريق؟</span><Button size="sm" variant="danger" onClick={() => { setRemoving(null); void act(() => api(`/team/${m.id}`, { method: 'DELETE' })); }}>أيوه، شيله</Button><Button size="sm" variant="ghost" onClick={() => setRemoving(null)}>لأ</Button></span>
+                    : <Button size="sm" variant="danger" onClick={() => setRemoving(m.id)}>شيل من الفريق</Button>)}</td>
                 </tr>
               ))}
               {data?.invites.map(i => (
