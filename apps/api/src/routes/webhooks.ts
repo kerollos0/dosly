@@ -13,13 +13,13 @@ export const webhookRoutes: FastifyPluginAsync = async app => {
 
   app.get('/webhooks/meta', async (req, reply) => {
     const q = req.query as Record<string, string>;
-    if (q['hub.mode'] === 'subscribe' && q['hub.verify_token'] === env.META_VERIFY_TOKEN) return reply.type('text/plain').send(q['hub.challenge']);
+    if (env.META_VERIFY_TOKEN && q['hub.mode'] === 'subscribe' && q['hub.verify_token'] === env.META_VERIFY_TOKEN) return reply.type('text/plain').send(q['hub.challenge']);
     return reply.status(403).send('forbidden');
   });
 
   app.post('/webhooks/meta', { bodyLimit: 5 * 1024 * 1024 }, async (req, reply) => {
     const raw = req.body as Buffer;
-    if (!verifyMetaSignature(raw, req.headers['x-hub-signature-256'] as string | undefined, env.META_APP_SECRET)) {
+    if (!env.META_APP_SECRET || !verifyMetaSignature(raw, req.headers['x-hub-signature-256'] as string | undefined, env.META_APP_SECRET)) {
       req.log.warn('Rejected webhook with a bad signature');
       return reply.status(401).send('bad signature');
     }

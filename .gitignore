@@ -9,3 +9,4 @@ coverage
 *.log
 packages/db/src/generated
 uploads
+dump.rdb

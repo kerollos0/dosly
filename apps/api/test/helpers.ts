@@ -15,9 +15,9 @@ export async function reset() {
 
 export type Graph = (url: string, init?: RequestInit) => unknown;
 
-export async function makeApp(graph: Graph = () => ({})) {
-  const calls = { webhooks: [] as string[], scheduled: [] as { postId: string; at: Date }[], cancelled: [] as string[], events: [] as RealtimeEvent[], graph: [] as { url: string; body?: unknown }[] };
-  const env = loadEnv({ ...process.env, NODE_ENV: 'test', ENCRYPTION_KEY: key.toString('hex'), META_APP_SECRET: APP_SECRET, META_VERIFY_TOKEN: 'verify-me-123', PUBLIC_URL: 'http://localhost:3000', UPLOAD_DIR: '/tmp/dosly-test-uploads' });
+export async function makeApp(graph: Graph = () => ({}), envOverrides: Record<string, string> = {}) {
+  const calls = { webhooks: [] as string[], scheduled: [] as { postId: string; at: Date }[], cancelled: [] as string[], demo: [] as string[], events: [] as RealtimeEvent[], graph: [] as { url: string; body?: unknown }[] };
+  const env = loadEnv({ ...process.env, NODE_ENV: 'test', ENCRYPTION_KEY: key.toString('hex'), META_APP_SECRET: APP_SECRET, META_VERIFY_TOKEN: 'verify-me-123', PUBLIC_URL: 'http://localhost:3000', UPLOAD_DIR: '/tmp/dosly-test-uploads', ...envOverrides });
   const fakeFetch = (async (url: string, init?: RequestInit) => {
     calls.graph.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
     const out = graph(url, init);
@@ -29,7 +29,8 @@ export async function makeApp(graph: Graph = () => ({})) {
     queues: {
       enqueueWebhook: async id => { calls.webhooks.push(id); },
       schedulePost: async (postId, at) => { calls.scheduled.push({ postId, at }); },
-      cancelPost: async id => { calls.cancelled.push(id); }
+      cancelPost: async id => { calls.cancelled.push(id); },
+      ...(env.DEMO_MODE === 'true' && { demoAfterSend: async (id: string) => { calls.demo.push(id); } })
     },
     realtime: { publish: (_a, e) => { calls.events.push(e); } }
   });

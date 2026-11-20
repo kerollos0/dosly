@@ -4,11 +4,13 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { Button, ErrorText, Field, Input } from '@/components/ui';
+import { DemoStart, useDemoAvailable } from '@/components/demo';
 
 export default function LoginPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const demo = useDemoAvailable();
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
@@ -19,6 +21,8 @@ export default function LoginPage() {
     } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   }
   return (
+    <div className="flex flex-col gap-6">
+    {demo && <DemoStart />}
     <form onSubmit={submit} className="flex flex-col gap-4">
       <h1 className="font-display text-[28px] font-bold">تسجيل الدخول</h1>
       <Field label="الإيميل" id="email"><Input id="email" name="email" type="email" dir="ltr" autoComplete="email" required /></Field>
@@ -27,5 +31,6 @@ export default function LoginPage() {
       <Button disabled={busy}>{busy ? 'بيدخل…' : 'ادخل'}</Button>
       <p className="text-sm text-muted">وكالة جديدة؟ <Link className="font-semibold text-faience-ink" href="/signup">اعمل حساب</Link></p>
     </form>
+    </div>
   );
 }

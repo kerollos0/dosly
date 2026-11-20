@@ -7,6 +7,8 @@ const api = process.env.API_INTERNAL_URL ?? (process.env.NODE_ENV === 'productio
 
 const config: NextConfig = {
   output: 'standalone',
+  // socket.io polls /socket.io/?EIO=…; a trailing-slash redirect would break it behind the dev rewrite
+  skipTrailingSlashRedirect: true,
   outputFileTracingRoot: fileURLToPath(new URL('../../', import.meta.url)),
   poweredByHeader: false,
   async rewrites() {
@@ -14,6 +16,7 @@ const config: NextConfig = {
     return [
       { source: '/api/:path*', destination: `${api}/api/:path*` },
       { source: '/media/:path*', destination: `${api}/media/:path*` },
+      { source: '/socket.io/', destination: `${api}/socket.io/` }, // the bare path needs its slash kept
       { source: '/socket.io/:path*', destination: `${api}/socket.io/:path*` }
     ];
   },

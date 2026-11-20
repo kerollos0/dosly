@@ -43,8 +43,8 @@ export const authRoutes: FastifyPluginAsync = async app => {
   app.get('/me', async req => {
     const auth = requireAuth(req);
     const user = await db.user.findUniqueOrThrow({ where: { id: auth.userId }, select: { id: true, name: true, email: true } });
-    const agency = await db.agency.findUniqueOrThrow({ where: { id: auth.agencyId }, select: { id: true, name: true, slug: true } });
-    return { user, agency, role: auth.role };
+    const agency = await db.agency.findUniqueOrThrow({ where: { id: auth.agencyId }, select: { id: true, name: true, slug: true, demoExpiresAt: true } });
+    return { user, agency, role: auth.role, demo: agency.demoExpiresAt !== null };
   });
 
   app.post('/invites/accept', limit, async (req, reply) => {

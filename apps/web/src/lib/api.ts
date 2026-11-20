@@ -17,7 +17,7 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
 export const fetcher = (path: string) => api(path);
 
 export type Role = 'OWNER' | 'MANAGER' | 'MODERATOR' | 'WRITER';
-export type Me = { user: { id: string; name: string; email: string }; agency: { id: string; name: string }; role: Role };
+export type Me = { user: { id: string; name: string; email: string }; agency: { id: string; name: string }; role: Role; demo?: boolean };
 export type Client = {
   id: string; name: string; notes: string | null; assigneeIds: string[]; unreadConversations: number;
   waNumbers: { id: string; displayPhone: string; status: string }[];

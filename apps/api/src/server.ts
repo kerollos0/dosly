@@ -1,6 +1,6 @@
 import { Redis } from 'ioredis';
 import { createDb } from '@dosly/db';
-import { loadKey } from '@dosly/shared';
+import { demoFetch, loadKey } from '@dosly/shared';
 import { buildApp } from './app.js';
 import { loadEnv } from './env.js';
 import { bullQueues } from './queues.js';
@@ -9,8 +9,10 @@ import { attachRealtime, redisPublisher } from './realtime.js';
 const env = loadEnv();
 const db = createDb(env.DATABASE_URL);
 const redis = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
-const queues = bullQueues({ url: env.REDIS_URL });
-const app = await buildApp({ db, env, key: loadKey(env.ENCRYPTION_KEY), queues, realtime: redisPublisher(redis) });
+const demo = env.DEMO_MODE === 'true';
+const queues = bullQueues({ url: env.REDIS_URL }, demo);
+const app = await buildApp({ db, env, key: loadKey(env.ENCRYPTION_KEY), queues, realtime: redisPublisher(redis), ...(demo && { fetch: demoFetch }) });
+if (demo) app.log.warn('DEMO MODE: Meta is simulated and nothing is sent to real customers');
 const rt = attachRealtime(app.server, db, env.REDIS_URL);
 
 await app.listen({ port: env.PORT, host: '0.0.0.0' });

@@ -15,11 +15,14 @@ import { inboxRoutes } from './routes/inbox.js';
 import { postRoutes } from './routes/posts.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { auditRoutes } from './routes/audit.js';
+import { demoRoutes } from './routes/demo.js';
 
 export interface Queues {
   enqueueWebhook(eventId: string): Promise<void>;
   schedulePost(postId: string, at: Date): Promise<void>;
   cancelPost(postId: string): Promise<void>;
+  /** Demo mode only: queue the fake phone's delivered/read receipts and maybe a customer reply. */
+  demoAfterSend?(messageId: string): Promise<void>;
 }
 
 export interface Deps {
@@ -68,5 +71,6 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   await app.register(inboxRoutes, { prefix: '/api' });
   await app.register(postRoutes, { prefix: '/api' });
   await app.register(auditRoutes, { prefix: '/api' });
+  if (deps.env.DEMO_MODE === 'true') await app.register(demoRoutes, { prefix: '/api' });
   return app;
 }

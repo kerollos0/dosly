@@ -8,6 +8,7 @@ import { api, ApiError, can, fetcher, ROLE_LABEL, type Me } from '@/lib/api';
 import { cx } from '@/components/ui';
 import { MeContext } from '@/lib/me';
 import { useRealtime } from '@/lib/realtime';
+import { DemoBar } from '@/components/demo';
 
 
 const NAV = [
@@ -32,7 +33,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <MeContext.Provider value={me}>
-      <div className="flex h-full max-md:flex-col">
+      <div className="flex h-full flex-col">
+      {me.demo && <DemoBar me={me} />}
+      <div className="flex min-h-0 flex-1 max-md:flex-col">
         <aside className="flex w-60 shrink-0 flex-col border-e border-line bg-surface-2 max-md:w-full max-md:border-e-0 max-md:border-b">
           <div className="flex items-center gap-3 px-5 py-5 max-md:py-3">
             <img src="/dosly-mark.svg" alt="" width={36} height={36} />
@@ -57,6 +60,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </button>
         </aside>
         <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+      </div>
       </div>
     </MeContext.Provider>
   );

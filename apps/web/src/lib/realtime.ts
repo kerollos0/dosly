@@ -10,7 +10,7 @@ export function useRealtime(enabled: boolean) {
   const { mutate } = useSWRConfig();
   useEffect(() => {
     if (!enabled) return;
-    const socket = io({ path: '/socket.io', withCredentials: true, transports: ['websocket', 'polling'] });
+    const socket = io({ path: '/socket.io', withCredentials: true, transports: ['polling', 'websocket'] }); // polling first works through any proxy, then upgrades
     socket.on('event', (e: Event) => {
       if (e.type.startsWith('message') || e.type.startsWith('conversation')) {
         void mutate(k => typeof k === 'string' && (k.startsWith('/conversations') || k === '/clients'));

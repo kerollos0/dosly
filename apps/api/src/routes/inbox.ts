@@ -78,6 +78,7 @@ export const inboxRoutes: FastifyPluginAsync = async app => {
       const sent = await db.message.update({ where: { id: msg.id }, data: { waMessageId, status: 'SENT' } });
       await db.conversation.update({ where: { id: conv.id }, data: { lastMessageAt: sent.createdAt, lastPreview: body.slice(0, 140), unreadCount: 0, assigneeId: conv.assigneeId ?? auth.userId } });
       await realtime.publish(auth.agencyId, { type: 'message.new', conversationId: conv.id, clientId: conv.clientId, messageId: sent.id });
+      await app.deps.queues.demoAfterSend?.(sent.id);
       return reply.status(201).send(sent);
     } catch (e) {
       const error = e instanceof GraphError ? e.message : 'تعذر الاتصال بواتساب';

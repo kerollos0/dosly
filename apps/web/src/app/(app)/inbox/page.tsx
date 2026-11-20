@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import useSWR from 'swr';
+import useSWR, { useSWRConfig } from 'swr';
 import { formatDistanceToNowStrict, format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { Check, CheckCheck, Clock, AlertCircle, Send } from 'lucide-react';
@@ -68,7 +68,7 @@ export default function InboxPage() {
 }
 
 function StatusIcon({ s }: { s: string }) {
-  if (s === 'READ') return <CheckCheck size={14} className="text-faience-ink" aria-label="اتقرت" />;
+  if (s === 'READ') return <CheckCheck size={14} className="text-sun" aria-label="اتقرت" />;
   if (s === 'DELIVERED') return <CheckCheck size={14} aria-label="وصلت" />;
   if (s === 'SENT') return <Check size={14} aria-label="اتبعتت" />;
   if (s === 'FAILED') return <AlertCircle size={14} className="text-danger" aria-label="فشلت" />;
@@ -85,7 +85,12 @@ function Thread({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
   const [sending, setSending] = useState(false);
   const end = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { void api(`/conversations/${conv.id}/read`, { method: 'POST' }); }, [conv.id, data?.items.length]);
+  const { mutate: mutateAll } = useSWRConfig();
+  // Opening a thread, or a new message landing in the open one, clears its unread badge in the list too.
+  useEffect(() => {
+    void api(`/conversations/${conv.id}/read`, { method: 'POST' })
+      .then(() => mutateAll(k => typeof k === 'string' && k.startsWith('/conversations?')));
+  }, [conv.id, data?.items.length, mutateAll]);
   useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [data?.items.length]);
 
   const suggestions = useMemo(() => {
