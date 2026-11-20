@@ -8,6 +8,7 @@ import { api, ApiError, can, fetcher, ROLE_LABEL, type Me } from '@/lib/api';
 import { cx } from '@/components/ui';
 import { MeContext } from '@/lib/me';
 import { useRealtime } from '@/lib/realtime';
+import { useNotifications } from '@/lib/notify';
 import { DemoBar } from '@/components/demo';
 import { AccountBanner } from '@/components/account-banner';
 
@@ -26,6 +27,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const { data: me, error } = useSWR<Me>('/me', fetcher as (p: string) => Promise<Me>);
   useRealtime(!!me);
+  useNotifications(me?.user.id);
 
   useEffect(() => { if (error instanceof ApiError && error.status === 401) router.replace('/login'); }, [error, router]);
   if (!me) return <div className="grid h-full place-items-center text-muted">{error && !(error instanceof ApiError && error.status === 401) ? 'مش قادرين نوصل للسيرفر. جرّب تاني بعد شوية.' : 'بيحمّل…'}</div>;

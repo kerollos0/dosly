@@ -36,7 +36,11 @@ export const demoRoutes: FastifyPluginAsync = async app => {
       const current = await db.agency.findUnique({ where: { id: req.auth.agencyId } });
       if (current?.demoExpiresAt && current.demoExpiresAt > new Date()) agencyId = current.id; // keep the visitor's own sandbox
     }
-    agencyId ??= (await seedDemoAgency(db, key)).agencyId;
+    if (!agencyId) {
+      const seeded = await seedDemoAgency(db, key);
+      agencyId = seeded.agencyId;
+      for (const id of seeded.mediaMessageIds) await app.deps.queues.fetchMedia(id);
+    }
     await signInAs(req, reply, agencyId, role);
     return { ok: true };
   });
@@ -50,8 +54,8 @@ export const demoRoutes: FastifyPluginAsync = async app => {
 
   app.post('/demo/inbound', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async req => {
     const { auth } = await sandboxOf(req);
-    const { clientId } = z.object({ clientId: z.string().optional() }).parse(req.body ?? {});
-    await simulateInbound(db, realtime, { agencyId: auth.agencyId, clientId });
+    const { clientId, media } = z.object({ clientId: z.string().optional(), media: z.enum(['photo', 'voice', 'pricelist', 'random']).optional() }).parse(req.body ?? {});
+    await simulateInbound(db, realtime, { agencyId: auth.agencyId, clientId, media: media ?? 'random' }, { onMedia: id => app.deps.queues.fetchMedia(id) });
     return { ok: true };
   });
 

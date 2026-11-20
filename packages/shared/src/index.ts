@@ -6,3 +6,5 @@ export * from './schemas.js';
 export * from './demo.js';
 export * from './plans.js';
 export * from './totp.js';
+export * from './wa-media.js';
+export * from './wa-templates.js';

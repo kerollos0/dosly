@@ -33,6 +33,14 @@ export type Conversation = {
 };
 export type Message = {
   id: string; direction: 'IN' | 'OUT'; type: string; body: string | null; status: string; error: string | null; createdAt: string; sentBy: { id: string; name: string } | null;
+  hasMedia: boolean; hasPreview: boolean; mediaStatus: 'PENDING' | 'READY' | 'FAILED' | null; mediaMime: string | null; mediaSize: number | null;
+  fileName: string | null; mediaWidth: number | null; mediaHeight: number | null; durationSec: number | null; voice: boolean;
+  template?: { name?: string; header?: string; footer?: string; buttons: string[]; headerKind?: 'image' | 'video' | 'document' };
+};
+export type TemplateField = { id: string; part: 'header' | 'body' | 'button'; key: string; buttonIndex?: number };
+export type Template = {
+  id: string; name: string; language: string; category: string; status: string; reason: string | null;
+  shape: { fields: TemplateField[]; headerMedia: 'IMAGE' | 'VIDEO' | 'DOCUMENT' | null; headerText?: string; body: string; footer?: string; buttons: { type: string; text: string; url?: string }[] };
 };
 export type ClientReview = 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'CHANGES_REQUESTED';
 export const REVIEW_LABEL: Record<ClientReview, string> = { NOT_REQUIRED: '', PENDING: 'مستني موافقة العميل', APPROVED: 'العميل وافق', CHANGES_REQUESTED: 'العميل طلب تعديل' };

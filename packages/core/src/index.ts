@@ -4,3 +4,7 @@ export * from './posts.js';
 export * from './demo.js';
 export * from './demo-seed.js';
 export * from './reports.js';
+export * from './media-store.js';
+export * from './media-tools.js';
+export * from './media.js';
+export * from './templates.js';

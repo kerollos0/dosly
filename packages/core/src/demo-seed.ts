@@ -1,6 +1,8 @@
-import type { Db, Role } from '@dosly/db';
-import { encrypt, hashPassword, randomToken } from '@dosly/shared';
+import type { Db, Prisma, Role } from '@dosly/db';
+import { DEMO_MEDIA, DEMO_TEMPLATES, encrypt, hashPassword, randomToken, type DemoMediaName } from '@dosly/shared';
 import { DEMO_OPENERS, demoName, demoPhone, pick, type DemoKind } from './demo.js';
+import { previewText } from './media.js';
+import type { MediaStore } from './media-store.js';
 
 /**
  * Builds one demo sandbox: an agency with a team, four clients, connected channels,
@@ -98,6 +100,12 @@ const QUICK_REPLIES = [
 
 const minutes = (n: number) => new Date(Date.now() - n * 60_000);
 
+const SEED_MEDIA: Partial<Record<DemoKind, { name: string; minutesAgo: number; items: { media: DemoMediaName; body: string }[] }>> = {
+  perfume: { name: 'ريم الشريف', minutesAgo: 7, items: [{ media: 'photo', body: 'عايزة البرفان ده، متوفر؟' }, { media: 'voice', body: '' }] },
+  cafe: { name: 'خالد منصور', minutesAgo: 12, items: [{ media: 'voice', body: '' }] },
+  academy: { name: 'دينا سمير', minutesAgo: 35, items: [{ media: 'pricelist', body: 'ده اللي بعتوهولي، هو لسه ساري؟' }] }
+};
+
 export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
   const tag = randomToken().slice(0, 10).toLowerCase().replace(/[^a-z0-9]/g, 'x');
   const passwordHash = await hashPassword(randomToken()); // nobody can sign in with a password; only the demo button
@@ -115,6 +123,7 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
       users.push({ id: user.id, ...m });
     }
     const owner = users[0]!, manager = users[1]!, writer = users[4]!;
+    const mediaMessageIds: string[] = [];
 
     await tx.quickReply.createMany({ data: QUICK_REPLIES.map(q => ({ ...q, agencyId: agency.id })) });
 
@@ -155,6 +164,29 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
           status: dir === 'in' ? 'RECEIVED' as const : k === script.length - 1 ? 'DELIVERED' as const : 'READ' as const,
           sentById: dir === 'out' ? moderator.id : null, createdAt: times[k]!
         })) });
+      }
+
+      await tx.waTemplate.createMany({ data: DEMO_TEMPLATES.map(t => ({
+        agencyId: agency.id, waNumberId: num.id, metaId: t.id, name: t.name, language: t.language, status: t.status, category: t.category,
+        parameterFormat: t.parameter_format ?? 'POSITIONAL', components: t.components as unknown as Prisma.InputJsonValue
+      })) });
+      await tx.whatsAppNumber.update({ where: { id: num.id }, data: { templatesSyncedAt: now } });
+
+      // A customer who wrote with a file a few minutes ago; the worker downloads it like a real one.
+      const sent = SEED_MEDIA[c.kind];
+      if (sent) {
+        const contact = await tx.contact.create({ data: { agencyId: agency.id, clientId: client.id, waNumberId: num.id, waId: demoPhone(), name: sent.name } });
+        const at = minutes(sent.minutesAgo);
+        const conv = await tx.conversation.create({ data: { agencyId: agency.id, clientId: client.id, waNumberId: num.id, contactId: contact.id, status: 'OPEN', unreadCount: sent.items.length, lastMessageAt: at, lastInboundAt: at, lastPreview: previewText(DEMO_MEDIA[sent.items.at(-1)!.media].type, sent.items.at(-1)!.body, true), createdAt: at } });
+        for (const [k, item] of sent.items.entries()) {
+          const m = DEMO_MEDIA[item.media];
+          const row = await tx.message.create({ data: {
+            agencyId: agency.id, conversationId: conv.id, direction: 'IN', type: m.type, body: item.body || null, status: 'RECEIVED',
+            waMessageId: `wamid.DEMOM.${tag}.${ci}.${k}`, mediaId: `demo-media-${item.media}`, mediaStatus: 'PENDING', mediaMime: m.mime,
+            fileName: 'fileName' in m ? m.fileName : null, voice: 'voice' in m, createdAt: new Date(at.getTime() - (sent.items.length - 1 - k) * 20_000)
+          } });
+          mediaMessageIds.push(row.id);
+        }
       }
 
       // History: closed conversations over the past four weeks, so the monthly report has real shape.
@@ -224,15 +256,16 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
       log(30, users[2]!.id, 'conversation.update', 'Conversation', { status: 'PENDING' })
     ] });
 
-    return { agencyId: agency.id, users: users.map(u => ({ id: u.id, role: u.role, name: u.name })) };
+    return { agencyId: agency.id, users: users.map(u => ({ id: u.id, role: u.role, name: u.name })), mediaMessageIds };
   }, { timeout: 30_000 });
 }
 
 /** Deletes demo sandboxes past their expiry. Cascades remove everything they own. */
-export async function deleteExpiredDemos(db: Db, now = new Date()) {
+export async function deleteExpiredDemos(db: Db, now = new Date(), store?: MediaStore) {
   const expired = await db.agency.findMany({ where: { demoExpiresAt: { lte: now } }, select: { id: true, memberships: { select: { userId: true } } } });
   for (const a of expired) {
     await db.agency.delete({ where: { id: a.id } });
+    await store?.removePrefix(`wa/${a.id}`);
     await db.user.deleteMany({ where: { id: { in: a.memberships.map(m => m.userId) }, memberships: { none: {} } } });
   }
   return expired.length;

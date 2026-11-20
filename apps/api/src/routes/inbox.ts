@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { conversationUpdateSchema, decrypt, GraphError, isWindowOpen, quickReplySchema, sendMessageSchema, sendWhatsAppText } from '@dosly/shared';
 import type { AuthContext } from '../auth.js';
 import { assertClientAccess, audit, HttpError, requireAuth, requirePermission, visibleClientIds } from '../auth.js';
+import { publicMessage } from './media.js';
 
 const listQuery = z.object({
   clientId: z.string().optional(),
@@ -57,7 +58,25 @@ export const inboxRoutes: FastifyPluginAsync = async app => {
     });
     const hasMore = items.length > q.limit;
     const page = items.slice(0, q.limit);
-    return { items: page.reverse(), nextCursor: hasMore ? page[0]!.id : null };
+    return { items: page.reverse().map(publicMessage), nextCursor: hasMore ? page[0]!.id : null };
+  });
+
+  // One message, for live updates (a download finishing, a status change) without reloading the thread.
+  app.get<{ Params: { id: string } }>('/messages/:id', async req => {
+    const auth = requireAuth(req);
+    const msg = await db.message.findFirst({ where: { id: req.params.id, agencyId: auth.agencyId }, include: { sentBy: { select: { id: true, name: true } }, conversation: { select: { clientId: true } } } });
+    if (!msg) throw new HttpError(404, 'الرسالة مش موجودة', 'not_found');
+    await assertClientAccess(db, auth, msg.conversation.clientId);
+    const { conversation: _c, ...rest } = msg;
+    return publicMessage(rest);
+  });
+
+  // One conversation, e.g. to word a notification. Same visibility rules as the list.
+  app.get<{ Params: { id: string } }>('/conversations/:id', async req => {
+    const auth = requireAuth(req);
+    const c = await loadConversation(auth, req.params.id);
+    const client = await db.client.findUnique({ where: { id: c.clientId }, select: { id: true, name: true } });
+    return { id: c.id, clientId: c.clientId, client, status: c.status, assigneeId: c.assigneeId, unreadCount: c.unreadCount, lastPreview: c.lastPreview, contact: { name: c.contact.name, waId: c.contact.waId }, windowOpen: isWindowOpen(c.lastInboundAt) };
   });
 
   app.post<{ Params: { id: string } }>('/conversations/:id/read', async req => {
@@ -77,9 +96,9 @@ export const inboxRoutes: FastifyPluginAsync = async app => {
       const waMessageId = await sendWhatsAppText({ phoneNumberId: conv.waNumber.phoneNumberId, token: decrypt(conv.waNumber.accessTokenEnc, key), to: conv.contact.waId, body }, app.deps.fetch);
       const sent = await db.message.update({ where: { id: msg.id }, data: { waMessageId, status: 'SENT' } });
       await db.conversation.update({ where: { id: conv.id }, data: { lastMessageAt: sent.createdAt, lastPreview: body.slice(0, 140), unreadCount: 0, assigneeId: conv.assigneeId ?? auth.userId } });
-      await realtime.publish(auth.agencyId, { type: 'message.new', conversationId: conv.id, clientId: conv.clientId, messageId: sent.id });
+      await realtime.publish(auth.agencyId, { type: 'message.new', conversationId: conv.id, clientId: conv.clientId, messageId: sent.id, direction: 'OUT' });
       await app.deps.queues.demoAfterSend?.(sent.id);
-      return reply.status(201).send(sent);
+      return reply.status(201).send(publicMessage(sent));
     } catch (e) {
       const error = e instanceof GraphError ? e.message : 'تعذر الاتصال بواتساب';
       await db.message.update({ where: { id: msg.id }, data: { status: 'FAILED', error } });

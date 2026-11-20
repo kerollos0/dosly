@@ -25,8 +25,33 @@ export type InboundMessage = {
   timestamp: Date;
   type: string;
   body?: string;
-  mediaId?: string;
+  media?: InboundMedia;
 };
+
+/** The media object Meta puts on image, audio, video, document and sticker messages. */
+export type InboundMedia = { id: string; mime?: string; sha256?: string; fileName?: string; voice?: boolean; animated?: boolean };
+
+export type TemplateStatusUpdate = { wabaId: string; metaId: string; name?: string; language?: string; event: string; reason?: string | null; category?: string };
+
+export const MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'] as const;
+export type MediaType = (typeof MEDIA_TYPES)[number];
+export const isMediaType = (t: string): t is MediaType => (MEDIA_TYPES as readonly string[]).includes(t);
+
+/** Text shown for messages that carry no text of their own. */
+function bodyOf(m: Json): string | undefined {
+  const media = m[m.type];
+  if (m.text?.body) return m.text.body;
+  if (media?.caption) return media.caption;
+  if (m.button?.text) return m.button.text;
+  if (m.interactive) return m.interactive.button_reply?.title ?? m.interactive.list_reply?.title;
+  if (m.type === 'location' && m.location) {
+    const { latitude, longitude, name, address } = m.location;
+    return [name, address, `https://maps.google.com/?q=${latitude},${longitude}`].filter(Boolean).join('\n');
+  }
+  if (m.type === 'reaction') return m.reaction?.emoji ? `تفاعل ${m.reaction.emoji}` : undefined;
+  if (m.type === 'contacts') return (m.contacts ?? []).map((c: Json) => [c.name?.formatted_name, c.phones?.[0]?.phone].filter(Boolean).join(' ')).join('\n') || undefined;
+  return undefined;
+}
 
 export type StatusUpdate = {
   phoneNumberId: string;
@@ -39,18 +64,23 @@ export type StatusUpdate = {
 type Json = Record<string, any>;
 
 /** Flattens a WhatsApp Cloud API webhook payload into messages and status updates. */
-export function parseWebhook(payload: Json): { messages: InboundMessage[]; statuses: StatusUpdate[] } {
+export function parseWebhook(payload: Json): { messages: InboundMessage[]; statuses: StatusUpdate[]; templates: TemplateStatusUpdate[] } {
   const messages: InboundMessage[] = [];
   const statuses: StatusUpdate[] = [];
-  if (payload?.object !== 'whatsapp_business_account') return { messages, statuses };
+  const templates: TemplateStatusUpdate[] = [];
+  if (payload?.object !== 'whatsapp_business_account') return { messages, statuses, templates };
   for (const entry of payload.entry ?? []) {
     for (const change of entry.changes ?? []) {
-      if (change.field !== 'messages') continue;
       const v = change.value ?? {};
+      if (change.field === 'message_template_status_update') {
+        if (v.message_template_id != null) templates.push({ wabaId: String(entry.id), metaId: String(v.message_template_id), name: v.message_template_name, language: v.message_template_language, event: String(v.event), reason: v.reason ?? null, category: v.message_template_category });
+        continue;
+      }
+      if (change.field !== 'messages') continue;
       const phoneNumberId: string = v.metadata?.phone_number_id;
       const names = new Map<string, string>((v.contacts ?? []).map((c: Json) => [c.wa_id, c.profile?.name]));
       for (const m of v.messages ?? []) {
-        const media = m[m.type];
+        const media = isMediaType(m.type) ? m[m.type] : undefined;
         messages.push({
           phoneNumberId,
           waId: m.from,
@@ -58,8 +88,8 @@ export function parseWebhook(payload: Json): { messages: InboundMessage[]; statu
           waMessageId: m.id,
           timestamp: new Date(Number(m.timestamp) * 1000),
           type: m.type,
-          body: m.text?.body ?? media?.caption ?? m.button?.text ?? m.interactive?.button_reply?.title ?? m.interactive?.list_reply?.title,
-          mediaId: media?.id
+          body: bodyOf(m),
+          media: media?.id ? { id: String(media.id), mime: media.mime_type, sha256: media.sha256, fileName: media.filename, voice: media.voice === true, animated: media.animated === true } : undefined
         });
       }
       for (const s of v.statuses ?? []) {
@@ -73,7 +103,7 @@ export function parseWebhook(payload: Json): { messages: InboundMessage[]; statu
       }
     }
   }
-  return { messages, statuses };
+  return { messages, statuses, templates };
 }
 
 export class GraphError extends Error {

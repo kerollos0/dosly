@@ -9,7 +9,8 @@ const schema = z.object({
   PUBLIC_URL: z.url().default('http://localhost:3000'),
   META_APP_SECRET: z.string().default(''),
   META_VERIFY_TOKEN: z.string().default(''),
-  UPLOAD_DIR: z.string().default('./uploads'),
+  UPLOAD_DIR: z.string().default('./uploads'), // public post images, served at /media
+  PRIVATE_MEDIA_DIR: z.string().default('./private-media'), // customer attachments, served only through the API
   ALLOW_SIGNUP: z.enum(['true', 'false']).default('true'),
   // Demo mode: no Meta calls at all. Visitors get a private sandbox agency with simulated customers.
   DEMO_MODE: z.enum(['true', 'false']).default('false')

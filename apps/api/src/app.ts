@@ -4,7 +4,7 @@ import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import { ZodError } from 'zod';
 import type { Db } from '@dosly/db';
-import type { Publisher } from '@dosly/core';
+import type { MediaStore, Publisher } from '@dosly/core';
 import { HttpError, resolveSession, SESSION_COOKIE, type ReadOnlyReason } from './auth.js';
 import type { Env } from './env.js';
 import { authRoutes } from './routes/auth.js';
@@ -12,6 +12,7 @@ import { teamRoutes } from './routes/team.js';
 import { clientRoutes } from './routes/clients.js';
 import { channelRoutes } from './routes/channels.js';
 import { inboxRoutes } from './routes/inbox.js';
+import { mediaRoutes } from './routes/media.js';
 import { postRoutes } from './routes/posts.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { auditRoutes } from './routes/audit.js';
@@ -25,6 +26,12 @@ export interface Queues {
   cancelPost(postId: string): Promise<void>;
   /** Job counts per queue, for the admin health page. */
   stats?(): Promise<Record<string, Record<string, number>>>;
+  /** Downloads an inbound attachment from Meta into private storage. */
+  fetchMedia(messageId: string): Promise<void>;
+  /** Sends a queued media or template message (conversion and upload happen in the worker). */
+  sendMessage(messageId: string): Promise<void>;
+  /** Re-reads a number's WhatsApp templates from Meta. */
+  syncTemplates(waNumberId: string): Promise<void>;
   /** Demo mode only: queue the fake phone's delivered/read receipts and maybe a customer reply. */
   demoAfterSend?(messageId: string): Promise<void>;
 }
@@ -46,6 +53,8 @@ export interface Deps {
   key: Buffer;
   queues: Queues;
   realtime: Publisher;
+  /** Private storage for customer attachments; never served without an access check. */
+  media: MediaStore;
   fetch?: typeof fetch; // injectable for tests; defaults to global fetch
 }
 
@@ -89,6 +98,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   await app.register(clientRoutes, { prefix: '/api' });
   await app.register(channelRoutes, { prefix: '/api' });
   await app.register(inboxRoutes, { prefix: '/api' });
+  await app.register(mediaRoutes, { prefix: '/api' });
   await app.register(postRoutes, { prefix: '/api' });
   await app.register(auditRoutes, { prefix: '/api' });
   await app.register(portalRoutes, { prefix: '/api/portal' });

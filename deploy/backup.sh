@@ -6,3 +6,7 @@ cd "$(dirname "$0")/.."
 mkdir -p backups
 docker compose exec -T postgres pg_dump -U dosly -Fc dosly > "backups/dosly-$(date +%F).dump"
 find backups -name 'dosly-*.dump' -mtime +7 -delete
+
+# Customer files (photos, voice notes, documents): an incremental mirror, so each run copies only new files.
+mkdir -p backups/private
+docker run --rm -v dosly_private:/src:ro -v "$PWD/backups/private:/dst" alpine sh -c 'cp -a -u /src/. /dst/'

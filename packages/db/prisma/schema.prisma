@@ -36,6 +36,7 @@ model Agency {
   conversations Conversation[]
   messages    Message[]
   quickReplies QuickReply[]
+  waTemplates WaTemplate[]
   socialAccounts SocialAccount[]
   posts       Post[]
   auditLogs   AuditLog[]
@@ -238,6 +239,8 @@ model WhatsAppNumber {
   client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   conversations  Conversation[]
   contacts       Contact[]
+  templates      WaTemplate[]
+  templatesSyncedAt DateTime?
 
   @@index([agencyId])
 }
@@ -307,9 +310,21 @@ model Message {
   agencyId       String
   conversationId String
   direction      Direction
-  type           String   // text, image, audio, document, template, ...
-  body           String?
-  mediaId        String?
+  type           String   // text, image, audio, video, document, sticker, template, location, ...
+  body           String?  // text, media caption, or the rendered template body
+  mediaId        String?  // Meta media id: inbound ones expire after 7 days, uploaded ones after 30
+  mediaStatus    MediaStatus?
+  mediaKey       String?  // private storage key of the original file
+  previewKey     String?  // image/sticker: webp thumbnail; video: jpg poster; audio: m4a for browsers without Ogg
+  mediaMime      String?
+  mediaSize      Int?
+  mediaSha256    String?
+  fileName       String?
+  mediaWidth     Int?
+  mediaHeight    Int?
+  durationSec    Float?
+  voice          Boolean  @default(false) // a WhatsApp voice note (OGG/OPUS mono), not an audio file
+  payload        Json?    // outbound: what the worker sends (template components, media options)
   waMessageId    String?  @unique
   status         MessageStatus
   error          String?
@@ -320,6 +335,34 @@ model Message {
   sentBy         User?    @relation(fields: [sentById], references: [id], onDelete: SetNull)
 
   @@index([conversationId, createdAt])
+  @@index([mediaStatus, createdAt])
+}
+
+enum MediaStatus {
+  PENDING  // inbound: waiting for the worker to download it from Meta
+  READY
+  FAILED
+}
+
+/** WhatsApp message templates, synced per number from its WhatsApp Business Account. */
+model WaTemplate {
+  id              String   @id @default(cuid())
+  agencyId        String
+  waNumberId      String
+  metaId          String
+  name            String
+  language        String
+  category        String   // MARKETING | UTILITY | AUTHENTICATION
+  status          String   // APPROVED | PENDING | REJECTED | PAUSED | DISABLED | ...
+  parameterFormat String   @default("POSITIONAL") // or NAMED
+  components      Json
+  reason          String?
+  syncedAt        DateTime @default(now())
+  agency          Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  waNumber        WhatsAppNumber @relation(fields: [waNumberId], references: [id], onDelete: Cascade)
+
+  @@unique([waNumberId, name, language])
+  @@index([metaId])
 }
 
 model QuickReply {

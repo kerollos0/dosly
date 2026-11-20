@@ -39,7 +39,8 @@ docker compose logs -f api
 في تطبيق Meta > WhatsApp > Configuration:
 - **Callback URL:** `https://app.الدومين/webhooks/meta`
 - **Verify token:** نفس قيمة `META_VERIFY_TOKEN`
-- اعمل Subscribe على **messages**.
+- اعمل Subscribe على **messages** (الرسايل والصور والفويس وحالات الإرسال) و **message_template_status_update** (لما Meta توافق على قالب أو ترفضه أو توقفه).
+- التوكن لازم يكون فيه صلاحية `whatsapp_business_management` عشان دوسلي يقرا القوالب، و `whatsapp_business_messaging` عشان يبعت.
 
 ## 7. الباك أب
 ```sh

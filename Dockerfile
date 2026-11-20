@@ -20,9 +20,11 @@ RUN pnpm --filter @dosly/shared build && pnpm --filter @dosly/db build && pnpm -
 
 FROM base AS app
 ENV NODE_ENV=production
+# ffmpeg converts voice notes to WhatsApp's OGG/OPUS and makes video posters and audio previews.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app /app
-# Named volumes copy this ownership on first mount, so the API can write uploads as the node user.
-RUN mkdir -p /data/media && chown node:node /data/media
+# Named volumes copy this ownership on first mount, so the API and worker can write as the node user.
+RUN mkdir -p /data/media /data/private && chown node:node /data/media /data/private
 USER node
 CMD ["node", "apps/api/dist/server.js"]
 
