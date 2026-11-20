@@ -39,6 +39,8 @@ model Agency {
   waTemplates WaTemplate[]
   socialComments SocialComment[]
   socialAccounts SocialAccount[]
+  adAccounts  AdAccount[]
+  adAlerts    AdAlert[]
   posts       Post[]
   auditLogs   AuditLog[]
   invites     Invite[]
@@ -167,7 +169,10 @@ model Client {
   posts       Post[]
   portalUsers ClientUser[]
   socialComments SocialComment[]
+  adAccounts  AdAccount[]
+  adAlerts    AdAlert[]
   requiresClientApproval Boolean @default(false) // posts wait for the client's OK in the portal before publishing
+  showAdsInPortal Boolean @default(false) // the client sees ad spend and results in the portal report (the agency opts in)
 
   @@index([agencyId])
 }
@@ -544,4 +549,109 @@ model WebhookEvent {
   receivedAt  DateTime @default(now())
   processedAt DateTime?
   error       String?
+}
+
+/**
+ * A Meta ad account the agency runs for a client, read through the Marketing API (ads_read).
+ * Money is stored in the currency's minor unit (Meta's "offset": 100 for EGP and USD), as integers.
+ */
+model AdAccount {
+  id               String   @id @default(cuid())
+  agencyId         String
+  clientId         String
+  externalId       String   // numeric ad account id, without the act_ prefix
+  name             String
+  currency         String   // ISO 4217, as set on the ad account
+  timezoneName     String   // insights dates are days in this time zone
+  accountStatus    Int      @default(1) // Meta account_status: 1 active, 2 disabled, 3 unsettled, ...
+  disableReason    Int      @default(0)
+  spendCapMinor    BigInt?  // account spending limit; null when none
+  amountSpentMinor BigInt   @default(0) // spent against the spending limit
+  accessTokenEnc   String
+  status           ChannelStatus @default(CONNECTED) // ERROR: the token stopped working; sync paused until reconnect
+  lastError        String?
+  lastSyncAt       DateTime?
+  insightsFrom     String?  // first day synced (YYYY-MM-DD)
+  throttledUntil   DateTime? // Meta asked us to slow down; no calls before this
+  lastAttemptAt    DateTime? // last try, good or bad: a failing account waits a full interval too
+  createdAt        DateTime @default(now())
+  agency           Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client           Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  campaigns        AdCampaign[]
+  alerts           AdAlert[]
+
+  @@unique([agencyId, externalId])
+  @@index([clientId])
+  @@index([status, lastSyncAt])
+}
+
+model AdCampaign {
+  id                  String   @id @default(cuid())
+  adAccountId         String
+  externalId          String
+  name                String
+  objective           String?  // OUTCOME_SALES, OUTCOME_LEADS, ...
+  status              String   // configured: ACTIVE, PAUSED, DELETED, ARCHIVED
+  effectiveStatus     String   // ACTIVE, PAUSED, WITH_ISSUES, IN_PROCESS, ...
+  dailyBudgetMinor    BigInt?  // set only when the budget is on the campaign (not its ad sets)
+  lifetimeBudgetMinor BigInt?
+  budgetRemainingMinor BigInt?
+  checkedStatus       String?  // effectiveStatus when alerts were last evaluated: a change from delivering opens "stopped"
+  issues              Json?    // issues_info: why it is not delivering
+  startTime           DateTime?
+  stopTime            DateTime?
+  updatedAt           DateTime @updatedAt
+  createdAt           DateTime @default(now())
+  adAccount           AdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  insights            AdInsightDaily[]
+  alerts              AdAlert[]
+
+  @@unique([adAccountId, externalId])
+}
+
+/** One campaign on one day (the ad account's time zone). Meta keeps changing a day for 28 days, so those are re-read. */
+model AdInsightDaily {
+  campaignId         String
+  date               String   // YYYY-MM-DD
+  spendMinor         BigInt   @default(0)
+  impressions        Int      @default(0)
+  reach              Int      @default(0)
+  linkClicks         Int      @default(0)
+  messages           Int      @default(0) // messaging conversations started
+  leads              Int      @default(0)
+  purchases          Int      @default(0)
+  purchaseValueMinor BigInt   @default(0)
+  campaign           AdCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, date])
+  @@index([date])
+}
+
+enum AdAlertKind {
+  ACCOUNT_PROBLEM   // disabled, unpaid bill, under review: nothing delivers
+  SPEND_CAP_NEAR    // the account spending limit is almost reached
+  CAMPAIGN_ISSUES   // Meta stopped delivery (WITH_ISSUES or issues_info)
+  CAMPAIGN_STOPPED  // was running at the last check and is not running now
+  BUDGET_LOW        // a lifetime budget is almost spent
+}
+
+/** One open problem per account or campaign and kind. It resolves itself when the condition clears. */
+model AdAlert {
+  id          String   @id @default(cuid())
+  agencyId    String
+  clientId    String
+  adAccountId String
+  campaignId  String?
+  kind        AdAlertKind
+  objectKey   String   // the account or campaign id it is about, so one row per problem
+  detail      Json?
+  openedAt    DateTime @default(now())
+  resolvedAt  DateTime?
+  agency      Agency    @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client      Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  adAccount   AdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  campaign    AdCampaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([adAccountId, kind, objectKey])
+  @@index([agencyId, resolvedAt])
 }

@@ -1,5 +1,5 @@
 import type { Db, Prisma, Role } from '@dosly/db';
-import { DEMO_MEDIA, DEMO_TEMPLATES, encrypt, hashPassword, randomToken, type DemoMediaName } from '@dosly/shared';
+import { DEMO_MEDIA, DEMO_TEMPLATES, demoCampaignId, encrypt, hashPassword, randomToken, type DemoMediaName } from '@dosly/shared';
 import { DEMO_OPENERS, demoName, demoPhone, pick, type DemoKind } from './demo.js';
 import { previewText } from './media.js';
 import { seedSocial, type SeedSocialInput } from './demo-social.js';
@@ -125,11 +125,12 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
     }
     const owner = users[0]!, manager = users[1]!, writer = users[4]!;
     const mediaMessageIds: string[] = [];
+    const adAccountIds: string[] = [];
 
     await tx.quickReply.createMany({ data: QUICK_REPLIES.map(q => ({ ...q, agencyId: agency.id })) });
 
     for (const [ci, c] of CLIENTS.entries()) {
-      const client = await tx.client.create({ data: { agencyId: agency.id, name: c.name, notes: c.notes, requiresClientApproval: c.approval, createdAt: new Date(now.getTime() - (50 - ci * 7) * 86400_000) } });
+      const client = await tx.client.create({ data: { agencyId: agency.id, name: c.name, notes: c.notes, requiresClientApproval: c.approval, showAdsInPortal: true, createdAt: new Date(now.getTime() - (50 - ci * 7) * 86400_000) } });
       await tx.clientUser.create({ data: { agencyId: agency.id, clientId: client.id, name: c.owner, email: `owner${ci}.${tag}@demo.dosly.invalid`, lastLoginAt: ci % 2 ? null : minutes(60 * 20) } });
       const team = users.filter(u => u.clients.includes(ci));
       await tx.clientAssignment.createMany({ data: team.map(u => ({ clientId: client.id, userId: u.id })) });
@@ -248,6 +249,13 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
           };
         }) });
       }
+      // An ad account per client. The last digit picks the demo business in the simulated Marketing API.
+      const adExternal = `${String(now.getTime()).slice(-9)}${String(Math.floor(Math.random() * 1e5)).padStart(5, '0')}${ci}`;
+      const ad = await tx.adAccount.create({ data: { agencyId: agency.id, clientId: client.id, externalId: adExternal, name: c.name, currency: 'EGP', timezoneName: 'Africa/Cairo', accessTokenEnc: fakeToken(`ads${ci}`), createdAt: new Date(now.getTime() - 40 * 86400_000) } });
+      adAccountIds.push(ad.id);
+      // The clinic's lead form was running at the last check and was paused this morning: the first sync shows a "stopped" alert.
+      if (c.kind === 'clinic') await tx.adCampaign.create({ data: { adAccountId: ad.id, externalId: demoCampaignId(adExternal, '2'), name: 'فورم | استشارة تقويم مجانية', status: 'ACTIVE', effectiveStatus: 'ACTIVE', checkedStatus: 'DELIVERING', objective: 'OUTCOME_LEADS' } });
+
       await seedSocial(tx, { agencyId: agency.id, clientId: client.id, kind: c.kind, moderatorId: moderator.id, now, fb, ig, posts: published });
     }
 
@@ -256,12 +264,13 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
     await tx.auditLog.createMany({ data: [
       log(60 * 24 * 40, owner.id, 'team.invite', 'Invite', { role: 'MODERATOR' }),
       log(60 * 24 * 12, manager.id, 'channel.social.connect', 'SocialAccount', { platform: 'INSTAGRAM' }),
+      log(60 * 24 * 9, manager.id, 'ads.account.connect', 'AdAccount', { name: CLIENTS[1]!.name }),
       log(60 * 26, manager.id, 'post.approve', 'Post'),
       log(60 * 5, writer.id, 'post.create', 'Post'),
       log(30, users[2]!.id, 'conversation.update', 'Conversation', { status: 'PENDING' })
     ] });
 
-    return { agencyId: agency.id, users: users.map(u => ({ id: u.id, role: u.role, name: u.name })), mediaMessageIds };
+    return { agencyId: agency.id, users: users.map(u => ({ id: u.id, role: u.role, name: u.name })), mediaMessageIds, adAccountIds };
   }, { timeout: 30_000 });
 }
 

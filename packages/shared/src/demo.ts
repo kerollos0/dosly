@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { MetaTemplate } from './wa-templates.js';
+import { demoAdsGraph } from './demo-ads.js';
 
 /**
  * Demo mode: a stand-in for the Meta Graph API. It answers every call Dosly makes
@@ -69,6 +70,8 @@ export const demoFetch: typeof fetch = async (input, init) => {
   const [node, edge] = path.split('/');
   if (method === 'DELETE') return json({ success: true });
   if (method === 'GET') {
+    const ads = demoAdsGraph(url);
+    if (ads) return ads;
     if (fields.includes('first_name')) { const [first, last] = demoPersonName(node ?? '').split(' '); return json({ first_name: first, last_name: last, id: node }); }
     if (fields.includes('username') && fields.includes('profile_pic')) { const n = demoPersonName(node ?? ''); return json({ name: n, username: demoHandle(node ?? ''), id: node }); }
     if (node?.startsWith('demo-media-')) {

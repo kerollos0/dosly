@@ -7,7 +7,9 @@ export type RealtimeEvent =
   | { type: 'conversation.updated'; conversationId: string; clientId: string }
   | { type: 'post.updated'; postId: string; status: string }
   | { type: 'comment.new'; commentId: string; clientId: string; fromPage: boolean }
-  | { type: 'comment.updated'; commentId: string; clientId: string };
+  | { type: 'comment.updated'; commentId: string; clientId: string }
+  | { type: 'ads.synced'; adAccountId: string; clientId: string }
+  | { type: 'ads.alert'; clientId: string; kind: string };
 
 export interface Publisher {
   publish(agencyId: string, event: RealtimeEvent): void | Promise<void>;

@@ -48,6 +48,12 @@ docker compose logs -f api
 - حط `META_APP_ID` في `.env` عشان الـ worker يعرف رسايل دوسلي نفسها لما ترجع echo. حساب إنستجرام لازم يكون Professional ومربوط بالصفحة، وخلّي «السماح بالوصول للرسايل» شغال من إعدادات إنستجرام.
 - الصلاحيات اللي محتاجة App Review: `pages_messaging`، `pages_manage_metadata`، `pages_read_engagement`، `pages_manage_engagement`، `pages_read_user_content`، `instagram_basic`، `instagram_manage_comments`، `instagram_manage_messages`، و Human Agent عشان الرد بعد 24 ساعة.
 
+## 6.2 الإعلانات
+
+- كل وكالة بتربط الحساب الإعلاني بتاع العميل من صفحة القنوات: رقم الحساب و System User token عليه صلاحية `ads_read` على الحساب ده.
+- الصلاحية محتاجة App Review (`ads_read`) عشان تشتغل مع حسابات ناس برا التطبيق. من غيرها شغالة على حسابات أدمنز التطبيق بس (Development tier بحدود أقل).
+- مفيش Webhook مطلوب: الووركر بيقرا كل 15 دقيقة.
+
 ## 7. الباك أب
 ```sh
 crontab -e

@@ -10,7 +10,8 @@ export const PERMISSIONS = {
   'inbox:reply': ['OWNER', 'MANAGER', 'MODERATOR'],
   'posts:write': ['OWNER', 'MANAGER', 'WRITER'],
   'posts:approve': ['OWNER', 'MANAGER'],
-  'audit:view': ['OWNER', 'MANAGER']
+  'audit:view': ['OWNER', 'MANAGER'],
+  'ads:view': ['OWNER', 'MANAGER']
 } as const satisfies Record<string, readonly RoleName[]>;
 
 export type Permission = keyof typeof PERMISSIONS;

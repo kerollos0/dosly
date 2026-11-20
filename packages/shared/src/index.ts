@@ -9,3 +9,5 @@ export * from './totp.js';
 export * from './wa-media.js';
 export * from './wa-templates.js';
 export * from './meta-social.js';
+export * from './meta-ads.js';
+export * from './demo-ads.js';

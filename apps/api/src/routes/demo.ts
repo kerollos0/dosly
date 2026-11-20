@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { encrypt, hashPassword, newTotpSecret, randomToken, ROLES } from '@dosly/shared';
-import { seedDemoAgency, simulateComment, simulateInbound, simulateSocialMessage } from '@dosly/core';
+import { syncAdAccount, seedDemoAgency, simulateComment, simulateInbound, simulateSocialMessage } from '@dosly/core';
 import { audit, createSession, HttpError, requireAuth, SESSION_COOKIE } from '../auth.js';
 import { createPortalSession } from '../portal-auth.js';
 import { createAdminSession } from '../admin-auth.js';
@@ -40,6 +40,8 @@ export const demoRoutes: FastifyPluginAsync = async app => {
       const seeded = await seedDemoAgency(db, key);
       agencyId = seeded.agencyId;
       for (const id of seeded.mediaMessageIds) await app.deps.queues.fetchMedia(id);
+      // Ads numbers come from the simulated Marketing API through the real sync, so the ads page is full on arrival.
+      await Promise.all(seeded.adAccountIds.map(id => syncAdAccount({ db, key, pub: realtime, fetch: app.deps.fetch }, id).catch(err => req.log.warn({ err }, 'Demo ads sync failed'))));
     }
     await signInAs(req, reply, agencyId, role);
     return { ok: true };

@@ -44,6 +44,12 @@ export const connectSocialSchema = z.object({
   accessToken: z.string().min(20)
 });
 
+export const connectAdAccountSchema = z.object({
+  clientId: z.string().min(1),
+  adAccountId: z.string().trim().regex(/^(act_)?\d{5,25}$/i, 'رقم الحساب الإعلاني لازم يكون أرقام بس، أو act_ وبعدها أرقام'),
+  accessToken: z.string().trim().min(20)
+});
+
 export const sendMessageSchema = z.object({ body: z.string().trim().min(1).max(4096) });
 
 export const conversationUpdateSchema = z.object({

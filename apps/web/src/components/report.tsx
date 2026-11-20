@@ -4,12 +4,15 @@ import useSWR from 'swr';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { fetcher } from '@/lib/api';
 import { Button } from './ui';
+import { AdKpis, adsSentence, CampaignTable, SpendBars } from './ads';
+import { CURRENCY_NAME, type AdCurrencyBlock, type ReportCampaign } from '@/lib/ads';
 
 export type Report = {
   from: string; to: string;
   posts: { published: number; failed: number; upcoming: number; awaitingYou: number; byPlatform: { FACEBOOK_PAGE: number; INSTAGRAM: number } };
   inbox: { newConversations: number; inbound: number; outbound: number; customerTurns: number; answered: number; medianFirstResponseSec: number | null; open: number };
   daily: { day: string; inbound: number }[];
+  ads: { currencies: AdCurrencyBlock[]; campaigns: ReportCampaign[] } | null;
 };
 
 const MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
@@ -19,7 +22,7 @@ function duration(sec: number | null) {
   if (sec === null) return '—';
   if (sec < 90) return `${nf.format(Math.max(1, Math.round(sec)))} ثانية`;
   // Arabic counts 3 to 10 take the plural: 3 دقايق, but 15 دقيقة.
-  if (sec < 90 * 60) { const m = Math.round(sec / 60); return `${nf.format(m)} ${m >= 3 && m <= 10 ? 'دقايق' : 'دقيقة'}`; }
+  if (sec < 90 * 60) { const m = Math.round(sec / 60); return m === 2 ? 'دقيقتين' : `${nf.format(m)} ${m >= 3 && m <= 10 ? 'دقايق' : 'دقيقة'}`; }
   const h = Math.round(sec / 360) / 10;
   return `${nf.format(h)} ${h >= 3 && h <= 10 && Number.isInteger(h) ? 'ساعات' : 'ساعة'}`;
 }
@@ -89,7 +92,7 @@ export function MonthlyReport({ path, title }: { path: string; title?: string })
           <Button size="sm" variant="ghost" onClick={() => shift(1)} disabled={isCurrent} aria-label="الشهر اللي بعده"><ChevronLeft size={16} aria-hidden /></Button>
         </div>
       </div>
-      {!r ? <p className="text-muted">بيحمّل…</p> : (
+      {!r ? <p role="status" className="text-muted">بيحمّل…</p> : (
         <>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
             <Tile label="بوستات اتنشرت" value={nf.format(r.posts.published)} sub={`فيسبوك ${nf.format(r.posts.byPlatform.FACEBOOK_PAGE)} · إنستجرام ${nf.format(r.posts.byPlatform.INSTAGRAM)}`} />
@@ -98,6 +101,20 @@ export function MonthlyReport({ path, title }: { path: string; title?: string })
             <Tile label="اترد عليهم" value={rate === null ? '—' : `${nf.format(rate)}%`} sub={`${nf.format(r.inbox.answered)} من ${nf.format(r.inbox.customerTurns)} مرة العميل كتب`} />
           </div>
           <DailyBars r={r} />
+          {r.ads && (r.ads.currencies.length > 0 ? (
+            <section aria-labelledby="rep-ads-h" className="flex flex-col gap-3">
+              <h3 id="rep-ads-h" className="font-display text-xl font-bold">الإعلانات</h3>
+              {r.ads.currencies.map(b => (
+                <div key={b.currency} className="flex flex-col gap-3">
+                  {r.ads!.currencies.length > 1 && <h4 className="font-semibold">الحسابات {CURRENCY_NAME[b.currency] ?? b.currency}</h4>}
+                  <p className="text-lg">{adsSentence(b, isCurrent ? 'الشهر ده لحد النهارده' : 'في الشهر ده')}</p>
+                  <AdKpis block={b} client />
+                  <SpendBars block={b} title="صرف الإعلانات كل يوم" />
+                </div>
+              ))}
+              {r.ads.campaigns.length > 0 && <><h4 className="font-semibold">كل حملة جابت إيه</h4><CampaignTable rows={r.ads.campaigns} compact /></>}
+            </section>
+          ) : <p className="text-muted">مفيش صرف على الإعلانات في الشهر ده.</p>)}
         </>
       )}
     </section>

@@ -1,4 +1,6 @@
 import type { Db } from '@dosly/db';
+import { dayIn } from '@dosly/shared';
+import { adsOverview, type AdsCampaignRow, type AdsCurrencyBlock } from './ads.js';
 
 export type ClientReport = {
   from: string;
@@ -6,6 +8,8 @@ export type ClientReport = {
   posts: { published: number; failed: number; upcoming: number; awaitingYou: number; byPlatform: { FACEBOOK_PAGE: number; INSTAGRAM: number } };
   inbox: { newConversations: number; inbound: number; outbound: number; customerTurns: number; answered: number; medianFirstResponseSec: number | null; open: number };
   daily: { day: string; inbound: number }[];
+  /** Ad spend and results, when the client has ad accounts and the agency shows them in the portal. */
+  ads: { currencies: AdsCurrencyBlock[]; campaigns: Pick<AdsCampaignRow, 'id' | 'name' | 'objective' | 'currency' | 'spendMinor' | 'result' | 'results' | 'costPerResultMinor' | 'purchaseValueMinor'>[] } | null;
 };
 
 /**
@@ -13,7 +17,8 @@ export type ClientReport = {
  * wrote, and how fast the agency answered. "Response time" is measured per customer turn: every
  * time a customer writes after the agency (or for the first time), until the agency's next reply.
  */
-export async function clientReport(db: Db, clientId: string, from: Date, to: Date, now = new Date()): Promise<ClientReport> {
+/** `includeAds: false` leaves the ads section out (for agency staff without ads access). */
+export async function clientReport(db: Db, clientId: string, from: Date, to: Date, now = new Date(), opts: { includeAds?: boolean } = {}): Promise<ClientReport> {
   const [published, failed, upcoming, awaitingYou, targets, newConversations, inbound, outbound, open, turns, daily] = await Promise.all([
     db.post.count({ where: { clientId, status: { in: ['PUBLISHED', 'PARTIAL'] }, scheduledAt: { gte: from, lt: to } } }),
     db.post.count({ where: { clientId, status: 'FAILED', scheduledAt: { gte: from, lt: to } } }),
@@ -52,11 +57,30 @@ export async function clientReport(db: Db, clientId: string, from: Date, to: Dat
     if (platform) byPlatform[platform] += t._count;
   }
   const r = turns[0] ?? { turns: 0, answered: 0, median: null };
+  const ads = opts.includeAds === false ? null : await clientAds(db, clientId, from, to, now);
   return {
     from: from.toISOString(), to: to.toISOString(),
     posts: { published, failed, upcoming, awaitingYou, byPlatform },
     inbox: { newConversations, inbound, outbound, customerTurns: r.turns, answered: r.answered, medianFirstResponseSec: r.median === null ? null : Math.round(r.median), open },
-    daily: daily.map(d => ({ day: d.day.toISOString().slice(0, 10), inbound: d.inbound }))
+    daily: daily.map(d => ({ day: d.day.toISOString().slice(0, 10), inbound: d.inbound })),
+    ads
+  };
+}
+
+async function clientAds(db: Db, clientId: string, from: Date, to: Date, now: Date): Promise<ClientReport['ads']> {
+  const client = await db.client.findUnique({ where: { id: clientId }, select: { agencyId: true, showAdsInPortal: true, _count: { select: { adAccounts: true } } } });
+  if (!client?.showAdsInPortal || !client._count.adAccounts) return null;
+  // Insights days are in the ad account's time zone; Egyptian accounts are on Cairo time like the report.
+  // Month edges are instants near Cairo midnight (off by an hour in summer time); 12 hours inside them is safely the right day.
+  const first = dayIn('Africa/Cairo', new Date(from.getTime() + 12 * 3600_000));
+  const last = dayIn('Africa/Cairo', new Date(Math.min(to.getTime() - 12 * 3600_000, now.getTime())));
+  const o = await adsOverview(db, { agencyId: client.agencyId, clientIds: [clientId], from: first, to: last, now });
+  return {
+    currencies: o.currencies,
+    campaigns: o.campaigns.filter(c => c.spendMinor > 0).slice(0, 20).map(c => ({
+      id: c.id, name: c.name, objective: c.objective, currency: c.currency, spendMinor: c.spendMinor,
+      result: c.result, results: c.results, costPerResultMinor: c.costPerResultMinor, purchaseValueMinor: c.purchaseValueMinor
+    }))
   };
 }
 

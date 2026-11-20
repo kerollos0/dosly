@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import useSWR from 'swr';
-import { CalendarDays, History, LogOut, MessageCircle, MessagesSquare, Plug, Users, Briefcase } from 'lucide-react';
+import { CalendarDays, History, LogOut, Megaphone, MessageCircle, MessagesSquare, Plug, Users, Briefcase } from 'lucide-react';
 import { api, ApiError, can, fetcher, ROLE_LABEL, type Me } from '@/lib/api';
 import { cx } from '@/components/ui';
 import { MeContext } from '@/lib/me';
@@ -17,6 +17,7 @@ const NAV = [
   { href: '/inbox', label: 'المحادثات', icon: MessageCircle, show: () => true },
   { href: '/comments', label: 'الكومنتات', icon: MessagesSquare, show: () => true },
   { href: '/calendar', label: 'جدولة البوستات', icon: CalendarDays, show: () => true },
+  { href: '/ads', label: 'الإعلانات', icon: Megaphone, show: (m: Me) => can.manage(m.role) },
   { href: '/clients', label: 'العملاء', icon: Briefcase, show: () => true },
   { href: '/channels', label: 'القنوات', icon: Plug, show: (m: Me) => can.manage(m.role) },
   { href: '/team', label: 'الفريق', icon: Users, show: () => true },
@@ -30,6 +31,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useRealtime(!!me);
   useNotifications(me?.user.id);
   const { data: comments } = useSWR<{ openCount: number }>(me ? '/comments?limit=1' : null, fetcher as never, { refreshInterval: 60_000 });
+  const { data: adAlerts } = useSWR<{ count: number }>(me && can.manage(me.role) ? '/ads/alerts' : null, fetcher as never, { refreshInterval: 5 * 60_000 });
 
   useEffect(() => { if (error instanceof ApiError && error.status === 401) router.replace('/login'); }, [error, router]);
   if (!me) return <div className="grid h-full place-items-center text-muted">{error && !(error instanceof ApiError && error.status === 401) ? 'مش قادرين نوصل للسيرفر. جرّب تاني بعد شوية.' : 'بيحمّل…'}</div>;
@@ -55,8 +57,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               const active = path.startsWith(n.href);
               return (
                 <Link key={n.href} href={n.href} aria-current={active ? 'page' : undefined}
-                  className={cx('flex items-center gap-3 rounded-[var(--radius-md)] px-3 py-2 font-medium whitespace-nowrap', active ? 'bg-primary text-on-primary' : 'text-ink hover:bg-surface')}>
+                  className={cx('relative flex items-center gap-3 rounded-[var(--radius-md)] px-3 py-2 font-medium whitespace-nowrap', active ? 'bg-primary text-on-primary' : 'text-ink hover:bg-surface')}>
                   <n.icon size={20} strokeWidth={1.75} aria-hidden />{n.label}
+                  {n.href === '/ads' && !!adAlerts?.count && <span className={cx('num ms-auto rounded-full px-1.5 text-xs font-semibold', active ? 'bg-on-primary/20' : 'bg-danger text-white')}>{adAlerts.count}<span className="sr-only"> تنبيهات</span></span>}
                   {n.href === '/comments' && !!comments?.openCount && <span className={cx('num ms-auto rounded-full px-1.5 text-xs font-semibold', active ? 'bg-on-primary/20' : 'bg-sun text-[#0F1B2D]')} >{comments.openCount}<span className="sr-only"> محتاجة رد</span></span>}
                 </Link>
               );

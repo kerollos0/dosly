@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { clientSchema, PLANS } from '@dosly/shared';
+import { can, clientSchema, PLANS } from '@dosly/shared';
 import { clientReport, monthRange } from '@dosly/core';
 import { assertClientAccess, audit, HttpError, requireAuth, requirePermission, visibleClientIds } from '../auth.js';
 import { createLoginLink } from '../portal-auth.js';
@@ -72,16 +72,16 @@ export const clientRoutes: FastifyPluginAsync = async app => {
     const auth = requireAuth(req);
     const client = await assertClientAccess(db, auth, req.params.id);
     const users = await db.clientUser.findMany({ where: { clientId: client.id }, orderBy: { createdAt: 'asc' }, select: { id: true, name: true, email: true, lastLoginAt: true, createdAt: true } });
-    return { requiresClientApproval: client.requiresClientApproval, users };
+    return { requiresClientApproval: client.requiresClientApproval, showAdsInPortal: client.showAdsInPortal, users };
   });
 
   app.put<{ Params: { id: string } }>('/clients/:id/portal/settings', async req => {
     const auth = requirePermission(req, 'clients:manage');
     await assertClientAccess(db, auth, req.params.id);
-    const { requiresClientApproval } = z.object({ requiresClientApproval: z.boolean() }).parse(req.body);
-    await db.client.update({ where: { id: req.params.id }, data: { requiresClientApproval } });
-    await audit(db, auth, 'client.portal_settings', 'Client', req.params.id, { requiresClientApproval });
-    return { requiresClientApproval };
+    const input = z.object({ requiresClientApproval: z.boolean().optional(), showAdsInPortal: z.boolean().optional() }).parse(req.body);
+    const c = await db.client.update({ where: { id: req.params.id }, data: input });
+    await audit(db, auth, 'client.portal_settings', 'Client', req.params.id, input);
+    return { requiresClientApproval: c.requiresClientApproval, showAdsInPortal: c.showAdsInPortal };
   });
 
   // There is no email sending yet, so the agency copies the sign-in link and sends it itself.
@@ -125,6 +125,7 @@ export const clientRoutes: FastifyPluginAsync = async app => {
     const now = new Date();
     const q = z.object({ year: z.coerce.number().int().min(2024).max(2100).default(now.getFullYear()), month: z.coerce.number().int().min(1).max(12).default(now.getMonth() + 1) }).parse(req.query);
     const [from, to] = monthRange(q.year, q.month);
-    return clientReport(db, req.params.id, from, to);
+    // Ad spend is for owners and managers; other staff see the rest of the client's report.
+    return clientReport(db, req.params.id, from, to, new Date(), { includeAds: can(auth.role, 'ads:view') });
   });
 };

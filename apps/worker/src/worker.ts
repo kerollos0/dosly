@@ -4,7 +4,7 @@ import { pino } from 'pino';
 import { z } from 'zod';
 import { createDb, Prisma } from '@dosly/db';
 import { demoFetch, loadKey, publishFacebookPost, publishInstagramPost } from '@dosly/shared';
-import { DEMO_TTL_HOURS, deleteExpiredDemos, fetchInboundMedia, localMediaStore, markMediaFailed, markSendFailed, overduePosts, pendingInboundMedia, PermanentMediaError, processMetaWebhook, publishPost, sendQueuedMessage, simulateComment, simulateInbound, simulateSocialMessage, simulateReply, simulateStatus, syncTemplates, type MediaDeps, type Publishers, type Publisher } from '@dosly/core';
+import { adAccountsDue, syncAdAccount, DEMO_TTL_HOURS, deleteExpiredDemos, fetchInboundMedia, localMediaStore, markMediaFailed, markSendFailed, overduePosts, pendingInboundMedia, PermanentMediaError, processMetaWebhook, publishPost, sendQueuedMessage, simulateComment, simulateInbound, simulateSocialMessage, simulateReply, simulateStatus, syncTemplates, type MediaDeps, type Publishers, type Publisher } from '@dosly/core';
 import type { Job } from 'bullmq';
 
 const env = z.object({
@@ -106,8 +106,29 @@ const media = new Worker('media', async job => {
 }, { connection, concurrency: env.MEDIA_CONCURRENCY });
 await mediaQueue.upsertJobScheduler('media-sweep', { every: 60_000 }, { name: 'sweep' });
 
-const workers = [webhooks, posts, media];
-const queues = [sweeper, mediaQueue];
+// Ads: every 5 minutes, queue the accounts not read in the last 15 (and not throttled by Meta).
+const adsQueue = new Queue('ads', { connection });
+const ads = new Worker('ads', async job => {
+  if (job.name === 'tick') {
+    const due = await adAccountsDue(db);
+    let queued = 0;
+    for (const a of due) {
+      // Same job id as a manual "update": an account is never queued twice. A finished or failed job is replaced.
+      const old = await adsQueue.getJob(`ads-${a.id}`);
+      if (old) { const st = await old.getState(); if (st !== 'completed' && st !== 'failed') continue; await old.remove().catch(() => {}); }
+      await adsQueue.add('sync', { adAccountId: a.id }, { jobId: `ads-${a.id}`, ...jobOpts(3, 30_000) });
+      queued++;
+    }
+    return { queued };
+  }
+  const r = await syncAdAccount({ db, key, pub, fetch: graphFetch }, job.data.adAccountId, new Date(), job.data.force === true);
+  if (r.status !== 'synced') log.info({ adAccountId: job.data.adAccountId, ...r }, 'Ad account not synced');
+  return r;
+}, { connection, concurrency: 2 }); // a few accounts at a time keeps us well under Meta's per-app limits
+await adsQueue.upsertJobScheduler('ads-tick', { every: 5 * 60_000 }, { name: 'tick' });
+
+const workers = [webhooks, posts, media, ads];
+const queues = [sweeper, mediaQueue, adsQueue];
 if (demoQueue) {
   queues.push(demoQueue);
   await demoQueue.upsertJobScheduler('demo-cleanup', { every: 10 * 60_000 }, { name: 'cleanup' });

@@ -7,7 +7,7 @@ import { api, fetcher, type Client } from '@/lib/api';
 import { useMe } from '@/lib/me';
 import { Button, ErrorText, Field, Input } from './ui';
 
-type PortalInfo = { requiresClientApproval: boolean; users: { id: string; name: string; email: string; lastLoginAt: string | null }[] };
+type PortalInfo = { requiresClientApproval: boolean; showAdsInPortal: boolean; users: { id: string; name: string; email: string; lastLoginAt: string | null }[] };
 
 /** Agency side of the client portal: who can sign in, and whether posts wait for the client's OK. */
 export function PortalPanel({ client, canManage }: { client: Client; canManage: boolean }) {
@@ -18,8 +18,8 @@ export function PortalPanel({ client, canManage }: { client: Client; canManage: 
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function toggle(on: boolean) {
-    try { await api(`/clients/${client.id}/portal/settings`, { method: 'PUT', body: { requiresClientApproval: on } }); await mutate(); } catch (e) { setError((e as Error).message); }
+  async function toggle(setting: 'requiresClientApproval' | 'showAdsInPortal', on: boolean) {
+    try { await api(`/clients/${client.id}/portal/settings`, { method: 'PUT', body: { [setting]: on } }); await mutate(); } catch (e) { setError((e as Error).message); }
   }
   async function invite(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -42,11 +42,15 @@ export function PortalPanel({ client, canManage }: { client: Client; canManage: 
 
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-sm text-muted">صاحب البيزنس بيدخل البوابة بلينك من غير باسورد. بيشوف البوستات الجاية وتقرير الشهر بس، ومش بيشوف المحادثات ولا فريقك.</p>
+      <p className="text-sm text-muted">صاحب البيزنس بيدخل البوابة بلينك من غير باسورد. بيشوف البوستات الجاية وتقرير الشهر (ومعاه الإعلانات لو سبتها ظاهرة)، ومش بيشوف المحادثات ولا فريقك.</p>
 
       <label className="flex items-start gap-3 rounded-[var(--radius-md)] border border-line p-3">
-        <input type="checkbox" className="mt-1" checked={data?.requiresClientApproval ?? false} disabled={!canManage || !data} onChange={e => toggle(e.target.checked)} />
+        <input type="checkbox" className="mt-1" checked={data?.requiresClientApproval ?? false} disabled={!canManage || !data} onChange={e => toggle('requiresClientApproval', e.target.checked)} />
         <span><span className="font-semibold">البوستات تستنى موافقة العميل</span><br /><span className="text-sm text-muted">البوست المجدول مش هيتنشر غير لما العميل يوافق عليه من البوابة.</span></span>
+      </label>
+      <label className="flex items-start gap-3 rounded-[var(--radius-md)] border border-line p-3">
+        <input type="checkbox" className="mt-1" checked={data?.showAdsInPortal ?? true} disabled={!canManage || !data} onChange={e => toggle('showAdsInPortal', e.target.checked)} />
+        <span><span className="font-semibold">العميل يشوف أرقام الإعلانات</span><br /><span className="text-sm text-muted">الصرف والنتايج وتكلفة كل نتيجة بتظهر في تقرير الشهر في البوابة.</span></span>
       </label>
 
       <section aria-labelledby="pu-h" className="flex flex-col gap-2">

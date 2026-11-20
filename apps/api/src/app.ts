@@ -14,6 +14,7 @@ import { channelRoutes } from './routes/channels.js';
 import { inboxRoutes } from './routes/inbox.js';
 import { mediaRoutes } from './routes/media.js';
 import { commentRoutes } from './routes/comments.js';
+import { adsRoutes } from './routes/ads.js';
 import { postRoutes } from './routes/posts.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { auditRoutes } from './routes/audit.js';
@@ -33,6 +34,8 @@ export interface Queues {
   sendMessage(messageId: string): Promise<void>;
   /** Re-reads a number's WhatsApp templates from Meta. */
   syncTemplates(waNumberId: string): Promise<void>;
+  /** Reads an ad account's campaigns and numbers from Meta now (the worker also does it every 15 minutes). */
+  syncAds(adAccountId: string): Promise<void>;
   /** Demo mode only: queue the fake phone's delivered/read receipts and maybe a customer reply. */
   demoAfterSend?(messageId: string): Promise<void>;
 }
@@ -101,6 +104,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   await app.register(inboxRoutes, { prefix: '/api' });
   await app.register(mediaRoutes, { prefix: '/api' });
   await app.register(commentRoutes, { prefix: '/api' });
+  await app.register(adsRoutes, { prefix: '/api' });
   await app.register(postRoutes, { prefix: '/api' });
   await app.register(auditRoutes, { prefix: '/api' });
   await app.register(portalRoutes, { prefix: '/api/portal' });
