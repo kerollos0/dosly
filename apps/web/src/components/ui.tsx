@@ -1,13 +1,13 @@
 'use client';
-import { forwardRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import { forwardRef, type ButtonHTMLAttributes, type Ref, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 
-type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'ghost' | 'danger'; size?: 'sm' | 'md' };
+type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & { ref?: Ref<HTMLButtonElement>; variant?: 'primary' | 'ghost' | 'danger'; size?: 'sm' | 'md' | 'lg' };
 export function Button({ variant = 'primary', size = 'md', className, ...p }: BtnProps) {
   return <button {...p} className={cx(
-    'inline-flex items-center justify-center gap-2 rounded-[var(--radius-md)] font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
-    size === 'sm' ? 'h-8 px-3 text-sm' : 'h-10 px-4',
+    'inline-flex items-center justify-center gap-2 rounded-[var(--radius-md)] font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-50 disabled:cursor-not-allowed',
+    size === 'sm' ? 'h-8 px-3 text-sm' : size === 'lg' ? 'h-12 px-5 text-base' : 'h-10 px-4',
     variant === 'primary' && 'bg-primary text-on-primary hover:brightness-110',
     variant === 'ghost' && 'border border-line text-ink hover:bg-surface-2',
     variant === 'danger' && 'border border-danger text-danger hover:bg-danger/10',

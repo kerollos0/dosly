@@ -38,10 +38,10 @@ const nfCache = new Map<string, Intl.NumberFormat>();
  * "1,234 جنيه", with piasters/cents only for small amounts. Wrapped in bidi isolates so it reads
  * right inside an Arabic sentence.
  */
-export function money(minor: number | null | undefined, currency: string) {
+export function money(minor: number | null | undefined, currency: string, whole = false) {
   if (minor === null || minor === undefined) return '—';
   const v = minor / offset(currency);
-  const digits = Math.abs(v) < 100 && offset(currency) > 1 && !Number.isInteger(v) ? 2 : 0;
+  const digits = !whole && Math.abs(v) < 100 && offset(currency) > 1 && !Number.isInteger(v) ? 2 : 0;
   let f = nfCache.get(String(digits));
   if (!f) { f = new Intl.NumberFormat('ar-EG-u-nu-latn', { minimumFractionDigits: digits, maximumFractionDigits: digits }); nfCache.set(String(digits), f); }
   return `\u2068${f.format(v)} ${currencyWord(currency)}\u2069`;
@@ -62,6 +62,16 @@ export function countLabel(n: number, kind: ResultKind) {
   const last = n % 100;
   return `${nf.format(n)} ${last >= 3 && last <= 10 ? w[2] : w[3]}`;
 }
+/** The owner's words: a "lead" is a phone number someone left. */
+const CLIENT_WORDS: Partial<typeof WORDS> = { leads: ['رقم تليفون واحد', 'رقمين تليفون', 'أرقام تليفون', 'رقم تليفون'] };
+export function clientCount(n: number, kind: ResultKind) {
+  const w = CLIENT_WORDS[kind] ?? WORDS[kind];
+  if (n === 1) return w[0];
+  if (n === 2) return w[1];
+  const last = n % 100;
+  return `${nf.format(n)} ${last >= 3 && last <= 10 ? w[2] : w[3]}`;
+}
+export const CLIENT_COST_LABEL: Record<ResultKind, string> = { messages: 'للمحادثة', leads: 'للرقم', purchases: 'لعملية الشراء', linkClicks: 'للضغطة', impressions: 'لكل 1000 مرة ظهور' };
 export const COST_LABEL: Record<ResultKind, string> = { messages: 'للمحادثة', leads: 'للعميل المحتمل', purchases: 'لعملية الشراء', linkClicks: 'للضغطة', impressions: 'لكل 1000 مرة ظهور' };
 export const RESULT_TITLE: Record<ResultKind, string> = { messages: 'محادثات جديدة', leads: 'عملاء محتملين', purchases: 'عمليات شراء', linkClicks: 'ضغطات على اللينك', impressions: 'مرات ظهور' };
 

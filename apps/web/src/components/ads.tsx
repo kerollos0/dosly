@@ -1,6 +1,6 @@
 'use client';
 import { useState, type KeyboardEvent } from 'react';
-import { CAMPAIGN_STATUS, COST_LABEL, countLabel, currencyWord, dayLabel, money, nf, OBJECTIVE_LABEL, percent, RESULT_TITLE, type AdCampaign, type AdCurrencyBlock, type ReportCampaign, type ResultKind } from '@/lib/ads';
+import { CAMPAIGN_STATUS, clientCount, CLIENT_COST_LABEL, COST_LABEL, countLabel, currencyWord, dayLabel, money, nf, OBJECTIVE_LABEL, percent, RESULT_TITLE, type AdCampaign, type AdCurrencyBlock, type ReportCampaign, type ResultKind } from '@/lib/ads';
 import { cx, Pill } from './ui';
 
 function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -15,20 +15,20 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: strin
 
 const SHOWN: ResultKind[] = ['messages', 'leads', 'purchases', 'linkClicks'];
 
-/** "Every pound spent brought back X pounds" over the campaigns that aim at sales. */
+/** "Every pound spent brought X pounds of sales" over the campaigns that aim at sales. */
 function returnLine(b: AdCurrencyBlock) {
   const g = b.byResult.purchases;
   if (!g?.valueMinor || !g.spendMinor) return null;
   const r = Math.round((g.valueMinor / g.spendMinor) * 10) / 10;
   const w = currencyWord(b.currency);
-  return `كل ${w} في إعلانات البيع رجّع ${nf.format(r)} ${w} مبيعات`;
+  return `كل ${w} اتصرف على إعلانات البيع جاب ${nf.format(r)} ${w} مبيعات`;
 }
 
 /** One plain sentence for the business owner: what was spent and what it brought. */
 export function adsSentence(b: AdCurrencyBlock, period = 'الشهر ده') {
-  const got = (['messages', 'leads', 'purchases'] as const).filter(k => (b.byResult[k]?.results ?? 0) > 0).map(k => countLabel(b.byResult[k]!.results, k));
+  const got = (['messages', 'leads', 'purchases'] as const).filter(k => (b.byResult[k]?.results ?? 0) > 0).map(k => clientCount(b.byResult[k]!.results, k));
   const list = got.length > 1 ? `${got.slice(0, -1).join('، ')} و${got.at(-1)}` : got[0];
-  return `صرفنا ${money(b.totals.spendMinor, b.currency)} على الإعلانات ${period}${list ? `، وجابت ${list}` : ''}.`;
+  return `اتصرف ${money(b.totals.spendMinor, b.currency)} على الإعلانات ${period}${list ? `، وجابت ${list}` : ''}.`;
 }
 
 /**
@@ -40,15 +40,17 @@ export function AdKpis({ block, client = false }: { block: AdCurrencyBlock; clie
   const b = block, c = block.currency;
   const kinds = SHOWN.filter(k => (b.byResult[k]?.results ?? 0) > 0 && !(client && k === 'linkClicks'));
   const ctr = b.totals.impressions ? b.totals.linkClicks / b.totals.impressions : 0;
-  const title = (k: ResultKind) => (client && k === 'leads' ? 'ناس سابوا رقمهم' : RESULT_TITLE[k]);
+  const title = (k: ResultKind) => (client && k === 'leads' ? 'ناس سابوا رقمهم' : client && k === 'messages' ? 'محادثات بدأت من الإعلان' : RESULT_TITLE[k]);
+  // The owner gets whole pounds and a plain "about"; the agency gets the exact cost.
+  const clientCost = (k: ResultKind, minor: number | null) => `${k === 'leads' ? 'الواحد كلّف' : k === 'messages' ? 'المحادثة الواحدة كلّفت' : 'الواحدة كلّفت'} حوالي ${money(minor, c, true)}`;
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))]">
-      <Tile label="الصرف" value={money(b.totals.spendMinor, c)} sub={`الإعلانات ظهرت ${nf.format(b.totals.impressions)} مرة`} />
+      <Tile label={client ? 'اتصرف على الإعلانات' : 'الصرف'} value={money(b.totals.spendMinor, c, client)} sub={client ? undefined : `الإعلانات ظهرت ${nf.format(b.totals.impressions)} مرة`} />
       {kinds.map(k => {
         const g = b.byResult[k]!;
         const sub = k === 'purchases' && returnLine(b) ? returnLine(b)! : k === 'linkClicks'
           ? `${money(g.costPerResultMinor, c)} ${COST_LABEL[k]} · نسبة الضغط ${percent(ctr)}`
-          : client ? `كل واحدة كلفت ${money(g.costPerResultMinor, c)} في المتوسط` : `${money(g.costPerResultMinor, c)} ${COST_LABEL[k]}`;
+          : client ? clientCost(k, g.costPerResultMinor) : `${money(g.costPerResultMinor, c)} ${COST_LABEL[k]}`;
         return <Tile key={k} label={title(k)} value={nf.format(g.results)} sub={sub} />;
       })}
     </div>
@@ -136,13 +138,13 @@ export function CampaignTable({ rows, clientName, accountState, compact = false 
               <tr key={r.id} className="border-t border-line align-top">
                 <th scope="row" className="p-3 text-start font-normal">
                   <div className="font-semibold">{r.name}</div>
-                  <div className="text-xs text-muted">{[clientName && full.clientId ? clientName(full.clientId) : null, r.objective ? OBJECTIVE_LABEL[r.objective] ?? r.objective : null].filter(Boolean).join(' · ')}</div>
+                  {!compact && <div className="text-xs text-muted">{[clientName && full.clientId ? clientName(full.clientId) : null, r.objective ? OBJECTIVE_LABEL[r.objective] ?? r.objective : null].filter(Boolean).join(' · ')}</div>}
                 </th>
                 {!compact && <td className="p-3"><Pill tone={st.tone}>{st.label}</Pill>{acc?.stale && <span className="mt-1 block text-xs text-muted">الأرقام مش متحدثة</span>}</td>}
                 {!compact && <td className="p-3 text-muted">{budget(full)}</td>}
-                <td className="p-3 font-semibold tabular-nums">{money(r.spendMinor, r.currency)}</td>
-                <td className="p-3">{r.results ? countLabel(r.results, r.result) : '—'}</td>
-                <td className="p-3 tabular-nums">{r.costPerResultMinor === null ? '—' : <>{money(r.costPerResultMinor, r.currency)} <span className="text-xs text-muted">{COST_LABEL[r.result]}</span></>}</td>
+                <td className="p-3 font-semibold tabular-nums">{money(r.spendMinor, r.currency, compact)}</td>
+                <td className="p-3">{r.results ? (compact ? clientCount : countLabel)(r.results, r.result) : '—'}</td>
+                <td className="p-3 tabular-nums">{r.costPerResultMinor === null ? '—' : <>{money(r.costPerResultMinor, r.currency, compact)} <span className="text-xs text-muted">{(compact ? CLIENT_COST_LABEL : COST_LABEL)[r.result]}</span></>}</td>
               </tr>
             );
           })}
