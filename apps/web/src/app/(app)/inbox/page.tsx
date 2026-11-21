@@ -15,6 +15,7 @@ import { useVoiceRecorder } from '@/components/inbox/voice-recorder';
 import { setOpenConversation, useNotifyPrefs } from '@/lib/notify';
 import { ChannelBadge, CHANNEL_LABEL } from '@/components/channel-badge';
 import { OrdersButton, OrdersPanel, useCustomerOrders } from '@/components/inbox/orders-panel';
+import { CustomerBar } from '@/components/inbox/customer-bar';
 
 const CHANNELS = [{ v: '', l: 'كل القنوات' }, { v: 'WHATSAPP', l: 'واتساب' }, { v: 'MESSENGER', l: 'ماسنجر' }, { v: 'INSTAGRAM', l: 'إنستجرام' }] as const;
 const MB = 1024 * 1024;
@@ -253,6 +254,7 @@ function Thread({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
           </div>
         )}
       </header>
+      {conv.contact.id && <CustomerBar contactId={conv.contact.id} canEdit={canReply} />}
       <div className="min-h-0 flex-1 overflow-y-auto bg-surface-2 px-6 py-4 max-md:px-3">
         <ol className="flex flex-col gap-2">
           {data?.items.map(m => {

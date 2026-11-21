@@ -41,7 +41,7 @@ export const inboxRoutes: FastifyPluginAsync = async app => {
       orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
       take: q.limit + 1,
       ...(q.cursor ? { cursor: { id: q.cursor }, skip: 1 } : {}),
-      include: { contact: { select: { name: true, waId: true, username: true, avatarUrl: true } }, client: { select: { id: true, name: true } }, assignee: { select: { id: true, name: true } } }
+      include: { contact: { select: { id: true, name: true, waId: true, username: true, avatarUrl: true, stage: true } }, client: { select: { id: true, name: true } }, assignee: { select: { id: true, name: true } } }
     });
     const hasMore = items.length > q.limit;
     const page = items.slice(0, q.limit).map(c => { const window = replyWindow(c.channel, c.lastInboundAt); return { ...c, window, windowOpen: window !== 'closed' }; });
@@ -82,7 +82,7 @@ export const inboxRoutes: FastifyPluginAsync = async app => {
       db.client.findUnique({ where: { id: c.clientId }, select: { id: true, name: true } }),
       c.assigneeId ? db.user.findUnique({ where: { id: c.assigneeId }, select: { id: true, name: true } }) : null
     ]);
-    return { id: c.id, clientId: c.clientId, client, status: c.status, assigneeId: c.assigneeId, assignee, lastMessageAt: c.lastMessageAt, lastInboundAt: c.lastInboundAt, unreadCount: c.unreadCount, lastPreview: c.lastPreview, channel: c.channel, contact: { name: c.contact.name, waId: c.contact.waId, username: c.contact.username }, window: replyWindow(c.channel, c.lastInboundAt), windowOpen: replyWindow(c.channel, c.lastInboundAt) !== 'closed' };
+    return { id: c.id, clientId: c.clientId, client, status: c.status, assigneeId: c.assigneeId, assignee, lastMessageAt: c.lastMessageAt, lastInboundAt: c.lastInboundAt, unreadCount: c.unreadCount, lastPreview: c.lastPreview, channel: c.channel, contact: { id: c.contact.id, name: c.contact.name, waId: c.contact.waId, username: c.contact.username, stage: c.contact.stage }, window: replyWindow(c.channel, c.lastInboundAt), windowOpen: replyWindow(c.channel, c.lastInboundAt) !== 'closed' };
   });
 
   app.post<{ Params: { id: string } }>('/conversations/:id/read', async req => {

@@ -1,4 +1,5 @@
 import { Prisma, type Db } from '@dosly/db';
+import { syncStageFromOrders } from './crm.js';
 import {
   buildConfirmationTemplate, confirmAnswer, confirmFromText, fitsConfirmation, LOST_STATUSES, moneyText, parseEasyOrders, parseShopify, phoneToWaId,
   SOLD_STATUSES, statusRank, type OrderStatusName, type ParsedOrder, type StoreEvent, type Tracking
@@ -139,6 +140,7 @@ export async function applyStoreEvent(deps: OrderDeps, store: StoreRow, ev: Stor
         data: { ...data, ...(keep ? { status: existing.status, rawStatus: existing.rawStatus } : settleByStore(existing, o.status, now)) }
       });
       if (!r.count) return { result: 'stale', orderId: existing.id };
+      await syncStageFromOrders(db, existing.contactId);
       await pub.publish(store.agencyId, { type: 'order.updated', orderId: existing.id, clientId: store.clientId });
       // The first delivery may have failed after saving the order but before the confirmation went out.
       if (wantsConfirmation(store, existing, o.cod, keep ? existing.status : o.status, now)) await autoConfirm(deps, existing.id, now);
@@ -156,6 +158,7 @@ export async function applyStoreEvent(deps: OrderDeps, store: StoreRow, ev: Stor
       throw e;
     }
     await db.storeConnection.update({ where: { id: store.id }, data: { lastOrderAt: now, lastError: null } });
+    await syncStageFromOrders(db, order.contactId);
     await pub.publish(store.agencyId, { type: 'order.new', orderId: order.id, clientId: store.clientId });
     if (wantsConfirmation(store, order, o.cod, o.status, now)) await autoConfirm(deps, order.id, now);
     return { result: 'created', orderId: order.id };
@@ -169,10 +172,12 @@ export async function applyStoreEvent(deps: OrderDeps, store: StoreRow, ev: Stor
     const data = { ...(move ? { rawStatus: ev.rawStatus.slice(0, 60), status: ev.status, ...settleByStore(existing, ev.status, now) } : {}), ...(ev.paid ? { cod: false } : {}) };
     if (!Object.keys(data).length) return { result: 'stale', orderId: existing.id };
     await db.storeOrder.update({ where: { id: existing.id }, data });
+    await syncStageFromOrders(db, existing.contactId);
   } else {
     // A shipment update only moves an order forward (a late "in transit" never undoes "delivered").
     const move = !!ev.status && forward(existing.status, ev.status);
     await db.storeOrder.update({ where: { id: existing.id }, data: { ...trackingData(ev.tracking), ...(move ? { status: ev.status!, ...settleByStore(existing, ev.status!, now) } : {}) } });
+    await syncStageFromOrders(db, existing.contactId);
   }
   await pub.publish(store.agencyId, { type: 'order.updated', orderId: existing.id, clientId: store.clientId });
   return { result: 'updated', orderId: existing.id };
@@ -238,6 +243,7 @@ export async function requestConfirmation(deps: OrderDeps, orderId: string, now 
     payload: json({ kind: 'template', template: built.template, rendered: { buttons: built.buttons }, orderId: order.id })
   } });
   await db.storeOrder.update({ where: { id: order.id }, data: { confirm: 'SENT', confirmMessageId: msg.id, confirmSentAt: now, confirmError: null, confirmedAt: null, confirmedBy: null, contactId: contact.id, followUpDoneAt: null } });
+  await syncStageFromOrders(db, contact.id);
   await pub.publish(order.agencyId, { type: 'message.new', conversationId: conv.id, clientId: order.clientId, messageId: msg.id, direction: 'OUT' });
   await pub.publish(order.agencyId, { type: 'order.updated', orderId: order.id, clientId: order.clientId });
   await deps.onSend?.(msg.id);
@@ -275,6 +281,7 @@ export async function applyConfirmReply(deps: OrderDeps, r: InboundReply): Promi
     data: { confirm: want, confirmedAt: r.at, confirmedBy: 'customer', followUpDoneAt: null }
   });
   if (!done.count) return null;
+  await syncStageFromOrders(db, r.contactId);
   await pub.publish(r.agencyId, { type: 'order.updated', orderId: order.id, clientId: r.clientId });
 
   // The customer just wrote, so a plain reply is allowed: thank them in words they expect.

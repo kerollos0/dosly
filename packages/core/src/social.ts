@@ -5,6 +5,7 @@ import type { MediaStore } from './media-store.js';
 import { previewText } from './media.js';
 import { processWhatsAppWebhook, type WebhookHooks } from './webhooks.js';
 import { autoReplyToMessage } from './autoreply.js';
+import { noteInterest } from './crm.js';
 
 export type SocialHooks = WebhookHooks & {
   /** With the encryption key, new Messenger/Instagram customers get their name and picture from the Graph API. */
@@ -44,6 +45,11 @@ export async function attachPlatformId(db: Db, messageId: string, mid: string, d
     await db.message.delete({ where: { id: echo.id } });
     return update();
   }
+}
+
+/** Click-to-Messenger / Instagram: the latest ad a customer came from (like WhatsApp's referral). */
+async function noteAdReferral(db: Db, contactId: string, r: { adId: string; title?: string }, at: Date) {
+  await db.contact.update({ where: { id: contactId }, data: { adId: r.adId, adReferredAt: at, adTitle: r.title ?? null, source: 'ad' } });
 }
 
 /** The status a comment thread should have: open when the newest word in it is the customer's. */
@@ -90,7 +96,7 @@ function partsOf(m: SocialInbound) {
  * sent from other tools), read receipts, and comments. Safe to run twice on the same payload.
  */
 export async function processSocialWebhook(db: Db, payload: unknown, pub: Publisher, hooks: SocialHooks = {}) {
-  const { messages, reads, comments } = parseSocialWebhook(payload as Record<string, unknown>);
+  const { messages, reads, comments, referrals } = parseSocialWebhook(payload as Record<string, unknown>);
   const unknown = new Set<string>();
   let stored = 0, commentsStored = 0;
 
@@ -115,6 +121,8 @@ export async function processSocialWebhook(db: Db, payload: unknown, pub: Publis
     if (!fresh.length) continue;
     const channel = acc.platform === 'INSTAGRAM' ? 'INSTAGRAM' as const : 'MESSENGER' as const;
     const contact = await contactFor(db, acc, m.customerId, hooks);
+    if (m.referral) await noteAdReferral(db, contact.id, m.referral, m.timestamp);
+    if (!m.echo) await noteInterest(db, contact.id, m.text);
     const preview = previewText(parts[0]!.type, parts[0]!.body);
     const created = await db.$transaction(async tx => {
       const conv = await tx.conversation.upsert({
@@ -146,6 +154,14 @@ export async function processSocialWebhook(db: Db, payload: unknown, pub: Publis
     // Not when another app owns the thread, for button presses, or for story mentions and shared posts.
     const answerable = !m.echo && !m.standby && !m.postback && !(m.attachments.length && !m.text && m.attachments.every(a => !['image', 'audio', 'video', 'file'].includes(a.type)));
     if (answerable && created.length) await autoReplyToMessage(db, pub, hooks.onSend, { conversationId: created[0]!.conv.id, body: m.text, at: m.timestamp });
+  }
+
+  // Back through an ad without writing yet: remember the ad, so their next order counts for it.
+  for (const r of referrals) {
+    const acc = await accountFor(db, r.platform, r.accountId);
+    if (!acc) continue;
+    const contact = await contactFor(db, acc, r.customerId, hooks);
+    await noteAdReferral(db, contact.id, r, r.timestamp);
   }
 
   for (const r of reads) {

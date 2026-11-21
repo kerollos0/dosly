@@ -6,6 +6,7 @@ import { applyTemplateUpdates } from './templates.js';
 import { applyConfirmReply } from './orders.js';
 import { noteBroadcastInbound } from './broadcast.js';
 import { autoReplyToMessage } from './autoreply.js';
+import { noteInterest, syncStageFromOrders } from './crm.js';
 
 const NO_AUTO_TYPES = new Set(['reaction', 'system', 'unsupported', 'interactive', 'button', 'order', 'request_welcome', 'ephemeral', 'errors']);
 const STATUS_RANK = { QUEUED: 0, SENT: 1, DELIVERED: 2, READ: 3, FAILED: 4, RECEIVED: 0 } as const;
@@ -34,11 +35,11 @@ export async function processWhatsAppWebhook(db: Db, payload: unknown, pub: Publ
 
     const contact = await db.contact.upsert({
       where: { waNumberId_waId: { waNumberId: num.id, waId: m.waId } },
-      create: { agencyId: num.agencyId, clientId: num.clientId, waNumberId: num.id, waId: m.waId, name: m.contactName, ...(m.referral ? { adId: m.referral.sourceId.slice(0, 64), adReferredAt: m.timestamp } : {}) },
+      create: { agencyId: num.agencyId, clientId: num.clientId, waNumberId: num.id, waId: m.waId, name: m.contactName, ...(m.referral ? { adId: m.referral.sourceId.slice(0, 64), adReferredAt: m.timestamp, source: 'ad' } : {}) },
       update: {
         ...(m.contactName ? { name: m.contactName } : {}),
         // Click-to-WhatsApp: remember the latest ad the customer came from, so their orders count for it.
-        ...(m.referral ? { adId: m.referral.sourceId.slice(0, 64), adReferredAt: m.timestamp } : {})
+        ...(m.referral ? { adId: m.referral.sourceId.slice(0, 64), adReferredAt: m.timestamp, source: 'ad' } : {})
       }
     });
     const preview = previewText(m.type, m.body, m.media?.voice);
@@ -57,7 +58,9 @@ export async function processWhatsAppWebhook(db: Db, payload: unknown, pub: Publ
     await pub.publish(num.agencyId, { type: 'message.new', conversationId: conv.id, clientId: num.clientId, messageId: msg.id, direction: 'IN' });
     if (m.media) await hooks.onMedia?.(msg.id);
     // Orders placed with this phone before the customer ever wrote are linked to the chat now.
-    await db.storeOrder.updateMany({ where: { clientId: num.clientId, waId: m.waId, contactId: null }, data: { contactId: contact.id } });
+    const linked = await db.storeOrder.updateMany({ where: { clientId: num.clientId, waId: m.waId, contactId: null }, data: { contactId: contact.id } });
+    if (linked.count) await syncStageFromOrders(db, contact.id);
+    await noteInterest(db, contact.id, m.body);
     const stopped = await noteBroadcastInbound(db, contact.id, m.body, m.timestamp);
     if (stopped) {
       // "إيقاف": they asked for no more offers. Saying so in the chat is allowed (they just wrote) and expected.

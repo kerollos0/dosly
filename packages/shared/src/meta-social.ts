@@ -64,7 +64,12 @@ export type SocialInbound = {
   standby?: boolean;
   /** A button press (Get Started, a menu item), not words the person typed. */
   postback?: boolean;
+  /** Click-to-Messenger / Click-to-Instagram ad that started it. */
+  referral?: SocialReferral;
 };
+export type SocialReferral = { adId: string; title?: string };
+/** Someone who already had a chat came back through an ad (messaging_referrals), without writing yet. */
+export type SocialReferralEvent = { platform: SocialPlatform; accountId: string; customerId: string; timestamp: Date } & SocialReferral;
 export type SocialRead = { platform: SocialPlatform; accountId: string; customerId: string; watermark?: Date; mid?: string; kind: 'read' | 'delivery' };
 export type SocialCommentEvent = {
   platform: SocialPlatform;
@@ -79,6 +84,10 @@ export type SocialCommentEvent = {
   createdAt: Date;
 };
 
+/** Only ads count: m.me links and QR codes carry a referral too, with source SHORTLINK / QR. */
+const adReferral = (r: Json): SocialReferral | undefined =>
+  r && String(r.source ?? '').toUpperCase() === 'ADS' && r.ad_id ? { adId: String(r.ad_id).slice(0, 64), title: typeof r.ads_context_data?.ad_title === 'string' ? r.ads_context_data.ad_title.slice(0, 200) : undefined } : undefined;
+
 const FEED_VERBS: Record<string, SocialCommentEvent['verb'] | undefined> = { add: 'add', edited: 'edited', edit: 'edited', remove: 'remove', delete: 'remove', hide: 'hide', unhide: 'unhide' };
 
 const time = (v: unknown) => {
@@ -88,8 +97,8 @@ const time = (v: unknown) => {
 };
 
 /** Parses a Page (`object: "page"`) or Instagram (`object: "instagram"`) webhook. Unknown parts are skipped. */
-export function parseSocialWebhook(payload: Json): { messages: SocialInbound[]; reads: SocialRead[]; comments: SocialCommentEvent[] } {
-  const out = { messages: [] as SocialInbound[], reads: [] as SocialRead[], comments: [] as SocialCommentEvent[] };
+export function parseSocialWebhook(payload: Json): { messages: SocialInbound[]; reads: SocialRead[]; comments: SocialCommentEvent[]; referrals: SocialReferralEvent[] } {
+  const out = { messages: [] as SocialInbound[], reads: [] as SocialRead[], comments: [] as SocialCommentEvent[], referrals: [] as SocialReferralEvent[] };
   const platform: SocialPlatform | null = payload?.object === 'page' ? 'FACEBOOK_PAGE' : payload?.object === 'instagram' ? 'INSTAGRAM' : null;
   if (!platform) return out;
   for (const entry of payload.entry ?? []) {
@@ -102,12 +111,13 @@ export function parseSocialWebhook(payload: Json): { messages: SocialInbound[]; 
         const echo = !!m.is_echo || sender === accountId;
         out.messages.push({
           platform, accountId, customerId: echo ? recipient : sender, mid: String(m.mid), timestamp: time(ev.timestamp), echo,
-          text: typeof m.text === 'string' ? m.text : undefined, deleted: !!m.is_deleted, appId: m.app_id ? String(m.app_id) : undefined, standby: standby.has(ev) || undefined,
+          text: typeof m.text === 'string' ? m.text : undefined, deleted: !!m.is_deleted, appId: m.app_id ? String(m.app_id) : undefined, standby: standby.has(ev) || undefined, referral: adReferral(m.referral),
           attachments: (m.attachments ?? []).map((a: Json) => ({ type: String(a.type ?? 'fallback'), url: a.payload?.url, stickerId: a.payload?.sticker_id ? String(a.payload.sticker_id) : undefined, title: a.payload?.title ?? a.title }))
         });
       } else if (ev.postback?.mid || ev.postback?.title) {
-        out.messages.push({ platform, accountId, customerId: sender, mid: String(ev.postback.mid ?? `pb-${sender}-${ev.timestamp}`), timestamp: time(ev.timestamp), echo: false, text: ev.postback.title, attachments: [], postback: true, standby: standby.has(ev) || undefined });
+        out.messages.push({ platform, accountId, customerId: sender, mid: String(ev.postback.mid ?? `pb-${sender}-${ev.timestamp}`), timestamp: time(ev.timestamp), echo: false, text: ev.postback.title, attachments: [], postback: true, standby: standby.has(ev) || undefined, referral: adReferral(ev.postback.referral) });
       }
+      if (ev.referral && !m && !ev.postback) { const r = adReferral(ev.referral); if (r) out.referrals.push({ platform, accountId, customerId: sender, timestamp: time(ev.timestamp), ...r }); }
       if (ev.read) out.reads.push({ platform, accountId, customerId: sender, kind: 'read', watermark: ev.read.watermark ? time(ev.read.watermark) : time(ev.timestamp), mid: ev.read.mid });
       if (ev.delivery) out.reads.push({ platform, accountId, customerId: sender, kind: 'delivery', watermark: ev.delivery.watermark ? time(ev.delivery.watermark) : undefined, mid: ev.delivery.mids?.[0] });
     }
@@ -177,7 +187,7 @@ export function asciiName(name: string) {
 }
 
 /** Webhook fields a connected Page subscribes this app to: comments, messages, echoes and receipts. */
-export const PAGE_WEBHOOK_FIELDS = ['feed', 'messages', 'message_echoes', 'message_reads', 'message_deliveries', 'messaging_postbacks'];
+export const PAGE_WEBHOOK_FIELDS = ['feed', 'messages', 'message_echoes', 'message_reads', 'message_deliveries', 'messaging_postbacks', 'messaging_referrals'];
 /** Without this call Meta sends no webhooks for the Page, even with the app's webhook configured. */
 export async function subscribePage(o: { pageId: string; token: string }, f?: F) {
   await graph(`${o.pageId}/subscribed_apps?subscribed_fields=${PAGE_WEBHOOK_FIELDS.join(',')}`, o.token, { method: 'POST' }, f);

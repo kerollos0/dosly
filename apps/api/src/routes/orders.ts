@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import type { Prisma } from '@dosly/db';
-import { confirmationTemplate, FOLLOW_UP_WHERE, requestConfirmation } from '@dosly/core';
+import { confirmationTemplate, FOLLOW_UP_WHERE, requestConfirmation, syncStageFromOrders } from '@dosly/core';
 import { encrypt, fitsConfirmation, randomToken } from '@dosly/shared';
 import { assertClientAccess, audit, HttpError, requirePermission, visibleClientIds, type AuthContext } from '../auth.js';
 
@@ -192,6 +192,7 @@ export const orderRoutes: FastifyPluginAsync = async app => {
         : a === 'cancel' ? { confirm: 'DECLINED', confirmedAt: now, confirmedBy: 'agent', followUpDoneAt: now, followUpBy: { connect: { id: auth.userId } } }
         : { followUpDoneAt: now, followUpBy: { connect: { id: auth.userId } } };
       await db.storeOrder.update({ where: { id: order.id }, data });
+      if (a !== 'done') await syncStageFromOrders(db, order.contactId);
       await audit(db, auth, `order.${a}`, 'StoreOrder', order.id, { number: order.number });
     }
     await realtime.publish(auth.agencyId, { type: 'order.updated', orderId: order.id, clientId: order.clientId });

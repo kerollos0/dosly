@@ -289,6 +289,13 @@ model Contact {
   adId            String?  // Click-to-WhatsApp: the Meta ad the customer first came from (webhook referral.source_id)
   adReferredAt    DateTime?
   marketingOptOutAt DateTime? // asked for no more offers (wrote "إيقاف", pressed the stop button, or Meta reported 131050)
+  adTitle         String?  // the ad's headline Meta sent with the referral (Messenger/Instagram), when the ad isn't synced
+  source          String   @default("direct") // how they first reached the business: ad | comment | direct
+  sourceRef       String?  // comment: the post they commented on
+  stage           LeadStage @default(NEW)
+  stageAt         DateTime?
+  tags            String[] @default([])
+  note            String?
   createdAt       DateTime @default(now())
   broadcasts      BroadcastRecipient[]
   agency          Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
@@ -301,6 +308,18 @@ model Contact {
   @@unique([waNumberId, waId])
   @@unique([socialAccountId, externalId])
   @@index([clientId, waId])
+  @@index([clientId, stage])
+  @@index([clientId, adId])
+  @@index([clientId, createdAt])
+}
+
+/** Where a customer is with the business: a light sales pipeline. */
+enum LeadStage {
+  NEW         // wrote for the first time
+  INTERESTED  // asked about prices, wants to know more
+  ORDERED     // placed an order (set by the store too)
+  WON         // received it / paid
+  LOST        // not interested
 }
 
 /** Where a conversation happens. Comments live in SocialComment, not here. */
@@ -344,6 +363,7 @@ model Conversation {
   @@unique([waNumberId, contactId])
   @@unique([socialAccountId, contactId])
   @@index([agencyId, lastMessageAt])
+  @@index([contactId])
 }
 
 enum Direction {

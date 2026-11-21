@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
-import { CalendarDays, Menu, Sun, X, History, LogOut, Megaphone, MessageCircle, MessagesSquare, Plug, Receipt, Send, Users, Briefcase, ShoppingBag, Zap } from 'lucide-react';
+import { CalendarDays, Menu, Sun, X, History, LogOut, Megaphone, MessageCircle, MessagesSquare, Plug, Receipt, Send, Users, Briefcase, ShoppingBag, Zap, Contact } from 'lucide-react';
 import { api, ApiError, can, fetcher, ROLE_LABEL, type Me } from '@/lib/api';
 import { cx } from '@/components/ui';
 import { MeContext } from '@/lib/me';
@@ -17,6 +17,7 @@ const NAV = [
   { href: '/today', label: 'النهارده', icon: Sun, show: () => true },
   { href: '/inbox', label: 'المحادثات', icon: MessageCircle, show: () => true },
   // Moderators see it once a store is connected; managers always, to find where to connect one.
+  { href: '/customers', label: 'الزباين', icon: Contact, show: () => true },
   { href: '/orders', label: 'الطلبات', icon: ShoppingBag, show: (m: Me, stores?: number) => can.manage(m.role) || (can.reply(m.role) && !!stores) },
   { href: '/comments', label: 'الكومنتات', icon: MessagesSquare, show: () => true },
   { href: '/calendar', label: 'البوستات', icon: CalendarDays, show: () => true },

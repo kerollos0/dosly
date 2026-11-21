@@ -95,7 +95,7 @@ export async function sendPrivateReply(deps: CommentDeps, c: CommentRow, text: s
     const channel = c.platform === 'INSTAGRAM' ? 'INSTAGRAM' as const : 'MESSENGER' as const;
     const contact = await db.contact.upsert({
       where: { socialAccountId_externalId: { socialAccountId: c.socialAccountId, externalId: sent.recipientId } },
-      create: { agencyId: c.agencyId, clientId: c.clientId, socialAccountId: c.socialAccountId, externalId: sent.recipientId, name: c.platform === 'INSTAGRAM' ? null : c.authorName, username: c.platform === 'INSTAGRAM' ? c.authorName : null },
+      create: { agencyId: c.agencyId, clientId: c.clientId, socialAccountId: c.socialAccountId, externalId: sent.recipientId, name: c.platform === 'INSTAGRAM' ? null : c.authorName, username: c.platform === 'INSTAGRAM' ? c.authorName : null, source: 'comment', sourceRef: c.postExternalId, ...(matchKeyword(c.body, ['بكام', 'السعر', 'سعر', 'الاسعار', 'متاح', 'price']) ? { stage: 'INTERESTED' as const, stageAt: new Date() } : {}) },
       update: {}
     });
     const now = new Date();

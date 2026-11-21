@@ -17,3 +17,4 @@ export * from './billing.js';
 export * from './demo-billing.js';
 export * from './broadcast.js';
 export * from './autoreply.js';
+export * from './crm.js';

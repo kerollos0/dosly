@@ -32,7 +32,7 @@ export type Client = {
 export type Conversation = {
   id: string; clientId: string; status: 'OPEN' | 'PENDING' | 'CLOSED'; unreadCount: number; lastMessageAt: string; lastPreview: string | null;
   channel: 'WHATSAPP' | 'MESSENGER' | 'INSTAGRAM'; lastInboundAt: string | null; window: 'open' | 'human_agent' | 'closed';
-  windowOpen: boolean; contact: { name: string | null; waId: string | null; username?: string | null }; client: { id: string; name: string }; assignee: { id: string; name: string } | null;
+  windowOpen: boolean; contact: { id?: string; name: string | null; waId: string | null; username?: string | null; stage?: string }; client: { id: string; name: string }; assignee: { id: string; name: string } | null;
 };
 export type Message = {
   id: string; direction: 'IN' | 'OUT'; type: string; body: string | null; status: string; error: string | null; createdAt: string; sentBy: { id: string; name: string } | null; auto?: boolean;

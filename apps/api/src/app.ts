@@ -18,6 +18,7 @@ import { adsRoutes } from './routes/ads.js';
 import { orderRoutes } from './routes/orders.js';
 import { broadcastRoutes } from './routes/broadcasts.js';
 import { automationRoutes } from './routes/automations.js';
+import { customerRoutes } from './routes/customers.js';
 import { billingRoutes } from './routes/billing.js';
 import { todayRoutes } from './routes/today.js';
 import { postRoutes } from './routes/posts.js';
@@ -118,6 +119,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   await app.register(billingRoutes, { prefix: '/api' });
   await app.register(broadcastRoutes, { prefix: '/api' });
   await app.register(automationRoutes, { prefix: '/api' });
+  await app.register(customerRoutes, { prefix: '/api' });
   await app.register(todayRoutes, { prefix: '/api' });
   await app.register(postRoutes, { prefix: '/api' });
   await app.register(auditRoutes, { prefix: '/api' });
