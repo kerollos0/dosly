@@ -153,7 +153,10 @@ export async function processSocialWebhook(db: Db, payload: unknown, pub: Publis
     }
     // Not when another app owns the thread, for button presses, or for story mentions and shared posts.
     const answerable = !m.echo && !m.standby && !m.postback && !(m.attachments.length && !m.text && m.attachments.every(a => !['image', 'audio', 'video', 'file'].includes(a.type)));
-    if (answerable && created.length) await autoReplyToMessage(db, pub, hooks.onSend, { conversationId: created[0]!.conv.id, body: m.text, at: m.timestamp });
+    if (answerable && created.length) {
+      const auto = await autoReplyToMessage(db, pub, hooks.onSend, { conversationId: created[0]!.conv.id, body: m.text, at: m.timestamp });
+      if (!auto) await hooks.onAiReply?.(created[0]!.conv.id);
+    }
   }
 
   // Back through an ad without writing yet: remember the ad, so their next order counts for it.

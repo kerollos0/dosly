@@ -41,10 +41,14 @@ export const inboxRoutes: FastifyPluginAsync = async app => {
       orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
       take: q.limit + 1,
       ...(q.cursor ? { cursor: { id: q.cursor }, skip: 1 } : {}),
-      include: { contact: { select: { id: true, name: true, waId: true, username: true, avatarUrl: true, stage: true } }, client: { select: { id: true, name: true } }, assignee: { select: { id: true, name: true } } }
+      include: { contact: { select: { id: true, name: true, waId: true, username: true, avatarUrl: true, stage: true } }, client: { select: { id: true, name: true, aiAssistant: { select: { mode: true } } } }, assignee: { select: { id: true, name: true } } }
     });
     const hasMore = items.length > q.limit;
-    const page = items.slice(0, q.limit).map(c => { const window = replyWindow(c.channel, c.lastInboundAt); return { ...c, window, windowOpen: window !== 'closed' }; });
+    const page = items.slice(0, q.limit).map(({ client, ...c }) => {
+      const window = replyWindow(c.channel, c.lastInboundAt);
+      const ai = { mode: client.aiAssistant?.mode ?? 'OFF', handoff: c.aiHandoffAt ? { at: c.aiHandoffAt, reason: c.aiHandoffReason } : null };
+      return { ...c, client: { id: client.id, name: client.name }, ai, window, windowOpen: window !== 'closed' };
+    });
     return { items: page, nextCursor: hasMore ? page.at(-1)!.id : null };
   });
 
@@ -79,10 +83,12 @@ export const inboxRoutes: FastifyPluginAsync = async app => {
     const auth = requireAuth(req);
     const c = await loadConversation(auth, req.params.id);
     const [client, assignee] = await Promise.all([
-      db.client.findUnique({ where: { id: c.clientId }, select: { id: true, name: true } }),
+      db.client.findUnique({ where: { id: c.clientId }, select: { id: true, name: true, aiAssistant: { select: { mode: true } } } }),
       c.assigneeId ? db.user.findUnique({ where: { id: c.assigneeId }, select: { id: true, name: true } }) : null
     ]);
-    return { id: c.id, clientId: c.clientId, client, status: c.status, assigneeId: c.assigneeId, assignee, lastMessageAt: c.lastMessageAt, lastInboundAt: c.lastInboundAt, unreadCount: c.unreadCount, lastPreview: c.lastPreview, channel: c.channel, contact: { id: c.contact.id, name: c.contact.name, waId: c.contact.waId, username: c.contact.username, stage: c.contact.stage }, window: replyWindow(c.channel, c.lastInboundAt), windowOpen: replyWindow(c.channel, c.lastInboundAt) !== 'closed' };
+    // The assistant: whether it can draft here, and whether it asked a person to answer.
+    const ai = { mode: client?.aiAssistant?.mode ?? 'OFF', handoff: c.aiHandoffAt ? { at: c.aiHandoffAt, reason: c.aiHandoffReason } : null };
+    return { id: c.id, clientId: c.clientId, client: client && { id: client.id, name: client.name }, ai, status: c.status, assigneeId: c.assigneeId, assignee, lastMessageAt: c.lastMessageAt, lastInboundAt: c.lastInboundAt, unreadCount: c.unreadCount, lastPreview: c.lastPreview, channel: c.channel, contact: { id: c.contact.id, name: c.contact.name, waId: c.contact.waId, username: c.contact.username, stage: c.contact.stage }, window: replyWindow(c.channel, c.lastInboundAt), windowOpen: replyWindow(c.channel, c.lastInboundAt) !== 'closed' };
   });
 
   app.post<{ Params: { id: string } }>('/conversations/:id/read', async req => {
@@ -112,7 +118,7 @@ export const inboxRoutes: FastifyPluginAsync = async app => {
       } else throw new HttpError(409, 'القناة بتاعة المحادثة دي اتشالت', 'channel_gone');
       // The echo webhook may have stored this id first; attachPlatformId keeps one copy, ours.
       const sent = await attachPlatformId(db, msg.id, waMessageId, { status: 'SENT' });
-      await db.conversation.update({ where: { id: conv.id }, data: { lastMessageAt: sent.createdAt, lastPreview: body.slice(0, 140), unreadCount: 0, assigneeId: conv.assigneeId ?? auth.userId } });
+      await db.conversation.update({ where: { id: conv.id }, data: { lastMessageAt: sent.createdAt, lastPreview: body.slice(0, 140), unreadCount: 0, assigneeId: conv.assigneeId ?? auth.userId, aiHandoffAt: null, aiHandoffReason: null } });
       await realtime.publish(auth.agencyId, { type: 'message.new', conversationId: conv.id, clientId: conv.clientId, messageId: sent.id, direction: 'OUT' });
       await app.deps.queues.demoAfterSend?.(sent.id);
       return reply.status(201).send(publicMessage(sent));
@@ -132,7 +138,8 @@ export const inboxRoutes: FastifyPluginAsync = async app => {
       const m = await db.membership.findUnique({ where: { agencyId_userId: { agencyId: auth.agencyId, userId: input.assigneeId } } });
       if (!m) throw new HttpError(400, 'العضو مش تابع للوكالة', 'bad_member');
     }
-    const updated = await db.conversation.update({ where: { id: conv.id }, data: input });
+    // Closing the chat also settles the assistant's "someone please answer" note.
+    const updated = await db.conversation.update({ where: { id: conv.id }, data: { ...input, ...(input.status === 'CLOSED' && { aiHandoffAt: null, aiHandoffReason: null }) } });
     await audit(db, auth, 'conversation.update', 'Conversation', conv.id, input);
     await realtime.publish(auth.agencyId, { type: 'conversation.updated', conversationId: conv.id, clientId: conv.clientId });
     return updated;

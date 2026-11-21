@@ -51,6 +51,10 @@ export function bullQueues(connection: { url: string }, demo = false): Queues & 
     async syncAds(adAccountId) {
       await addOnce(ads, 'sync', { adAccountId, force: true }, `ads-${adAccountId}`, 3, 30_000);
     },
+    async aiReply(conversationId) {
+      // A few seconds' wait gathers a customer's burst of short messages into one answer.
+      await media.add('ai-reply', { conversationId }, { jobId: `ai-${conversationId}-${Math.floor(Date.now() / 5000)}`, delay: 4000, attempts: 3, backoff: { type: 'exponential', delay: 10_000 }, removeOnComplete: 1000, removeOnFail: 5000 });
+    },
     async commentRules(commentId) {
       await addOnce(media, 'comment-rules', { commentId }, `cr-${commentId}`, 3, 5000);
     },

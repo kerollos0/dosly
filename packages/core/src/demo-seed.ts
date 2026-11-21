@@ -6,7 +6,7 @@ import { seedSocial, type SeedSocialInput } from './demo-social.js';
 import { seedDemoOrders } from './demo-orders.js';
 import { seedDemoBilling } from './demo-billing.js';
 import { seedDemoBroadcasts } from './demo-broadcast.js';
-import { seedDemoAutomations } from './demo-automations.js';
+import { seedDemoAssistants, seedDemoAutomations } from './demo-automations.js';
 import { seedDemoCrm } from './demo-crm.js';
 import type { MediaStore } from './media-store.js';
 
@@ -283,6 +283,7 @@ export async function seedDemoAgency(db: Db, key: Buffer, now = new Date()) {
     await seedDemoBroadcasts(tx, { agencyId: agency.id, ownerId: owner.id, clients: seeded, now, tag });
     await seedDemoAutomations(tx, { agencyId: agency.id, ownerId: owner.id, clients: seeded, now });
     await seedDemoCrm(tx, { agencyId: agency.id, now });
+    await seedDemoAssistants(tx, { agencyId: agency.id, ownerId: owner.id, clients: seeded, now });
 
     const log = (minAgo: number, userId: string | null, action: string, entity: string, meta?: object) =>
       ({ agencyId: agency.id, userId, action, entity, meta, createdAt: minutes(minAgo) });

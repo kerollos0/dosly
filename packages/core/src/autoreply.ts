@@ -18,11 +18,11 @@ const SAME_RULE_MS = 6 * 3600_000;
 type OutRow = { sentById: string | null; type: string; payload: Prisma.JsonValue; waMessageId: string | null };
 /**
  * Written by a person: from Dosly (has an author), or from Meta Business Suite / the phone app (an echo with
- * no payload of ours). Offers, order messages, opt-out notes and automatic replies are not a person talking.
+ * no payload of ours). Offers, order messages, opt-out notes, automatic replies and the AI assistant are not a person talking.
  */
-function byPerson(m: OutRow) {
+export function byPerson(m: OutRow) {
   const p = (m.payload ?? {}) as Record<string, unknown>;
-  if (m.type === 'template' || p.broadcastId || p.autoRuleId || p.orderId || p.optOut || p.commentId && !m.sentById) return false;
+  if (m.type === 'template' || p.broadcastId || p.autoRuleId || p.ai || p.orderId || p.optOut || p.commentId && !m.sentById) return false;
   return !!m.sentById || (!!m.waMessageId && !p.kind);
 }
 

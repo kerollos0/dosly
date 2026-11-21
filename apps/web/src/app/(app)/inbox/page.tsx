@@ -4,7 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import useSWR, { useSWRConfig } from 'swr';
 import { formatDistanceToNowStrict, format } from 'date-fns';
 import { ar } from 'date-fns/locale';
-import { Check, CheckCheck, Clock, AlertCircle, Send, Paperclip, Mic, Trash2, X, FileText, Bell, BellOff, MessageSquareText, Download } from 'lucide-react';
+import { Check, CheckCheck, Clock, AlertCircle, Send, Paperclip, Mic, Trash2, X, FileText, Bell, BellOff, MessageSquareText, Download, Sparkles, UserRound } from 'lucide-react';
 import { api, can, fetcher, type Client, type Conversation, type Member, type Message } from '@/lib/api';
 import { useMe } from '@/lib/me';
 import { Button, Empty, Input, Pill, Select, Textarea, cx } from '@/components/ui';
@@ -84,7 +84,10 @@ function Inbox() {
                 </span>
                 <span className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm text-muted">{c.lastPreview}</span>
-                  {c.unreadCount > 0 && <Pill tone="sun"><span className="num">{c.unreadCount}</span></Pill>}
+                  <span className="flex shrink-0 items-center gap-1">
+                    {c.ai?.handoff && <Pill tone="sun"><UserRound size={12} aria-hidden />محتاج رد منك</Pill>}
+                    {c.unreadCount > 0 && <Pill tone="sun"><span className="num">{c.unreadCount}</span></Pill>}
+                  </span>
                 </span>
                 <span className="flex items-center gap-2 text-xs"><ChannelBadge channel={c.channel ?? 'WHATSAPP'} /><span className="truncate text-faience-ink">{c.client.name}{c.assignee ? ` · ${c.assignee.name}` : ''}</span></span>
               </button>
@@ -167,12 +170,33 @@ function Thread({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
   const textProblem = conv.channel === 'INSTAGRAM' && new TextEncoder().encode(text).length > 1000
     ? 'الرسالة طويلة على إنستجرام (أقصى حاجة حوالي 500 حرف عربي). قصّرها أو قسّمها على رسالتين.'
     : conv.channel === 'MESSENGER' && text.length > 1999 ? 'الرسالة أطول من 1999 حرف، وده أقصى طول في ماسنجر' : null;
+  // The AI assistant's draft: it fills the box, and a person reads it, edits it and sends it.
+  // While a draft sits in the box untouched, Enter adds a line instead of sending: only «ابعت» sends it.
+  const [drafting, setDrafting] = useState(false);
+  const [draftNote, setDraftNote] = useState<string | null>(null);
+  const [draftText, setDraftText] = useState<string | null>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
+  async function draft() {
+    setDrafting(true); setError(null); setDraftNote(null);
+    try {
+      const d = await api<{ reply: string; sure: boolean; handoff: boolean; reason: string }>(`/conversations/${conv.id}/ai-draft`, { method: 'POST' });
+      if (d.handoff) { setDraftNote(`المساعد شايف إن السؤال ده محتاج حد من الفريق يرد بنفسه${d.reason ? ` (${d.reason})` : ''}. اكتب الرد انت.`); return; }
+      const next = text.trim() ? `${text.trim()}\n${d.reply}` : d.reply; // never wipes what someone already typed
+      setText(next); setDraftText(next);
+      if (!d.sure) setDraftNote(`المساعد مش متأكد من الرد ده${d.reason ? ` (${d.reason})` : ''}. اقرا كل كلمة وصلّح قبل ما تبعت.`);
+      requestAnimationFrame(() => { const t = box.current; if (t) { t.focus(); t.style.height = 'auto'; t.style.height = `${Math.min(t.scrollHeight, 240)}px`; } });
+    } catch (e) { setError((e as Error).message); } finally { setDrafting(false); }
+  }
+  const canDraft = conv.ai && conv.ai.mode !== 'OFF';
+
   async function send() {
     if (!text.trim() || textProblem) return;
     setSending(true); setError(null);
     try {
       await api(`/conversations/${conv.id}/messages`, { body: { body: text } });
-      setText('');
+      setText(''); setDraftNote(null); setDraftText(null);
+      if (box.current) box.current.style.height = '';
+      void mutateAll(k => typeof k === 'string' && k.startsWith('/conversations?'));
       await mutate();
     } catch (e) { setError((e as Error).message); } finally { setSending(false); }
   }
@@ -271,7 +295,7 @@ function Thread({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
                 {m.template && m.template.buttons.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{m.template.buttons.map((b, i) => <span key={i} className="rounded-full border border-current/40 px-2 py-0.5 text-xs">{b}</span>)}</div>}
                 <p className={cx('mt-1 flex items-center gap-1 text-xs', mediaOnly && 'px-2 pb-1', out ? 'opacity-80' : 'text-muted')}>
                   <span className="num">{format(new Date(m.createdAt), 'HH:mm')}</span>
-                  {m.sentBy ? <span>· {m.sentBy.name}</span> : m.auto && <span>· رد تلقائي</span>}
+                  {m.sentBy ? <span>· {m.sentBy.name}</span> : m.auto ? <span>· رد تلقائي</span> : m.ai && <span className="inline-flex items-center gap-1 font-semibold">· <Sparkles size={12} aria-hidden />رد آلي من المساعد</span>}
                   {out && <StatusIcon s={m.status} />}
                 </p>
                 {m.error && out && <p className={cx('mt-1 flex flex-wrap items-center gap-2 text-xs', mediaOnly && 'px-2 pb-1')}>{m.error} {m.status === 'FAILED' && m.hasMedia || m.type === 'template' && m.status === 'FAILED' ? <Retry m={m} label="ابعت تاني" /> : null}</p>}
@@ -296,6 +320,13 @@ function Thread({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
       </div>
       {canReply && (
         <footer className="border-t border-line p-4">
+          <div role="status">{draftNote && <p className="mb-2 rounded-[var(--radius-md)] bg-sun/15 px-3 py-2 text-sm">{draftNote}</p>}</div>
+          {conv.ai?.handoff && (
+            <p role="status" className="mb-2 flex items-start gap-2 rounded-[var(--radius-md)] bg-sun/15 px-3 py-2 text-sm">
+              <UserRound size={16} aria-hidden className="mt-0.5 shrink-0" />
+              <span><b>المساعد الذكي محتاج حد من الفريق يرد هنا.</b>{conv.ai.handoff.reason ? ` ${conv.ai.handoff.reason}` : ''}</span>
+            </p>
+          )}
           {conv.window === 'human_agent' && !file && (
             <p className="mb-2 rounded-[var(--radius-md)] bg-surface-2 px-3 py-2 text-xs text-muted">عدّى أكتر من 24 ساعة على آخر رسالة من العميل. {CHANNEL_LABEL[conv.channel]} بيسمح برد من موظف لحد 7 أيام، فالرد هيتبعت بعلامة «رد من موظف» (<bdi dir="ltr">Human agent</bdi>).</p>
           )}
@@ -342,9 +373,16 @@ function Thread({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
               <input ref={fileInput} type="file" accept={conv.channel === 'INSTAGRAM' ? 'image/*,video/mp4,video/quicktime,audio/*,.pdf' : ACCEPT} hidden onChange={e => { pick(e.target.files?.[0]); e.target.value = ''; }} />
               <button type="button" onClick={() => fileInput.current?.click()} aria-label="ابعت صورة أو ملف" title="صورة، فيديو، أو ملف" className="mb-1 rounded-[var(--radius-md)] p-2 text-muted hover:bg-surface-2"><Paperclip size={20} /></button>
               {!social && <button type="button" onClick={() => setTemplates(true)} aria-label="ابعت Template" title="رسالة Template" className="mb-1 rounded-[var(--radius-md)] p-2 text-muted hover:bg-surface-2"><MessageSquareText size={20} /></button>}
-              <Textarea aria-label="اكتب الرد" rows={2} value={text} onChange={e => setText(e.target.value)} placeholder="اكتب ردك… أو / للردود الجاهزة"
+              {canDraft && (
+                <button type="button" onClick={() => void draft()} disabled={drafting} aria-busy={drafting} title="المساعد الذكي يكتب لك رد، وانت تراجعه وتبعته"
+                  className="mb-1 inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-md)] px-2 text-sm font-semibold text-primary hover:bg-surface-2 disabled:opacity-60">
+                  <Sparkles size={18} aria-hidden className={cx(drafting && 'animate-pulse')} />
+                  <span className="whitespace-nowrap">{drafting ? 'بيكتب…' : <>اقترح<span className="max-sm:hidden"> رد</span></>}</span>
+                </button>
+              )}
+              <Textarea ref={box} aria-label="اكتب الرد" rows={2} value={text} onChange={e => setText(e.target.value)} placeholder="اكتب ردك… أو / للردود الجاهزة"
                 onPaste={e => { const f = [...e.clipboardData.files][0]; if (f) { e.preventDefault(); pick(f); } }}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }} />
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !(draftText !== null && text === draftText)) { e.preventDefault(); void send(); } }} />
               {text.trim() ? (
                 <Button onClick={send} disabled={sending || !!textProblem} aria-label="ابعت"><Send size={18} className="-scale-x-100" />ابعت</Button>
               ) : (

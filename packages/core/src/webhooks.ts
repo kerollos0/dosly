@@ -21,6 +21,8 @@ export type WebhookHooks = {
   onMedia?: (messageId: string) => Promise<void>;
   /** Queues an outbound message for the worker (the thank-you after an order confirmation). */
   onSend?: (messageId: string) => Promise<void>;
+  /** A customer message nothing answered automatically: the client's AI assistant may answer it (the worker decides). */
+  onAiReply?: (conversationId: string) => Promise<void>;
 };
 
 export async function processWhatsAppWebhook(db: Db, payload: unknown, pub: Publisher, hooks: WebhookHooks = {}): Promise<{ messages: number; statuses: number; templates: number; unknownNumbers: string[] }> {
@@ -76,7 +78,8 @@ export async function processWhatsAppWebhook(db: Db, payload: unknown, pub: Publ
     // No automatic reply on top of: a button press or a quoted answer to something we sent (an order, an offer),
     // a stop request, or things that aren't a message to answer (reactions, system notices).
     if (!stopped && !m.buttonPayload && !m.contextId && !isStopRequest(m.body) && !NO_AUTO_TYPES.has(m.type)) {
-      await autoReplyToMessage(db, pub, hooks.onSend, { conversationId: conv.id, body: m.body, at: m.timestamp });
+      const auto = await autoReplyToMessage(db, pub, hooks.onSend, { conversationId: conv.id, body: m.body, at: m.timestamp });
+      if (!auto) await hooks.onAiReply?.(conv.id);
     }
   }
 

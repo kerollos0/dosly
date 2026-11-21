@@ -27,3 +27,43 @@ export async function seedDemoAutomations(tx: Prisma.TransactionClient, o: Input
     ] });
   }
 }
+
+/** What each demo client's AI assistant knows. The perfume shop's answers on its own; the others draft replies. */
+const KNOWLEDGE: Record<string, string> = {
+  perfume: `لمسة للعطور: متجر عطور أونلاين، بنشحن لكل محافظات مصر.
+- عود ملكي 50 مل: 450 جنيه.
+- مسك الطهارة 30 مل: 120 جنيه.
+- برفان فانيليا ليدي 100 مل: 650 جنيه.
+- عرض: أي اتنين برفان الشحن عليهم مجاني.
+- الشحن: القاهرة والجيزة في يومين بـ 50 جنيه، باقي المحافظات من 3 لـ 5 أيام بـ 70 جنيه.
+- الدفع: كاش عند الاستلام أو إنستاباي.
+- الاستبدال خلال 14 يوم لو العلبة متفتحتش.
+- الطلب من الموقع lamsa.store أو ابعت الاسم والعنوان والمنتج هنا.`,
+  cafe: `كافيه نسمة: كافيه ومطبخ في التجمع الخامس، شارع التسعين الجنوبي جنب البنك الأهلي.
+- مفتوحين كل يوم من 8 الصبح لحد 1 بالليل.
+- كومبو الفطار لشخصين: 220 جنيه.
+- الكرواسون بالشوكولاتة: 65 جنيه.
+- القهوة الإسبريسو: 55 جنيه، واللاتيه: 75 جنيه.
+- الحجز للترابيزات بالواتساب، وبنحجز لحد 10 أشخاص.
+- في ركنة للأطفال وواي فاي مجاني.`,
+  academy: `أكاديمية خطوة للغات: كورسات إنجليزي وفرنساوي للكبار والأطفال، أونلاين وفي الفرع في مصر الجديدة.
+- كورس الإنجليزي للكبار: 8 مستويات، المستوى شهر ونص، 12 سيشن، سعره 1800 جنيه.
+- كورس الأطفال (من 6 لـ 12 سنة): 1500 جنيه للمستوى.
+- الفرنساوي: 2000 جنيه للمستوى.
+- اختبار تحديد المستوى مجاني.
+- المجموعات فيها 8 طلاب بالكتير.
+- المستوى الجديد بيبدأ أول كل شهر.`
+};
+
+export async function seedDemoAssistants(tx: Prisma.TransactionClient, o: Input) {
+  const counts = { perfume: [34, 51, 9], cafe: [22, 0, 0], academy: [15, 0, 0] } as Record<string, [number, number, number]>;
+  for (const c of o.clients) {
+    const knowledge = KNOWLEDGE[c.kind];
+    if (!knowledge) continue;
+    const [suggested, autoSent, handoffs] = counts[c.kind]!;
+    await tx.aiAssistant.create({ data: {
+      agencyId: o.agencyId, clientId: c.id, knowledge, suggested, autoSent, handoffs, updatedById: o.ownerId,
+      mode: c.kind === 'perfume' ? 'AUTO' : 'SUGGEST', channels: c.kind === 'perfume' ? ['WHATSAPP', 'INSTAGRAM'] : []
+    } });
+  }
+}

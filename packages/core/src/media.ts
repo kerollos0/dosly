@@ -250,7 +250,7 @@ export async function sendQueuedMessage(deps: MediaDeps, messageId: string): Pro
     const recipientId = conv.contact.externalId;
     if (payload.kind === 'text') {
       // An automatic reply: words only, and only inside the normal 24h window (the human-agent tag is for people).
-      if (w !== 'open' && (payload as { autoRuleId?: string }).autoRuleId) throw new PermanentMediaError('عدّى أكتر من 24 ساعة على رسالة العميل، فالرد التلقائي ما اتبعتش');
+      if (w !== 'open' && ((payload as { autoRuleId?: string; ai?: boolean }).autoRuleId || (payload as { ai?: boolean }).ai)) throw new PermanentMediaError('عدّى أكتر من 24 ساعة على رسالة العميل، فالرد التلقائي ما اتبعتش');
       try {
         const r = await sendSocialMessage({ token, recipient: { id: recipientId }, text: msg.body ?? '', tag }, deps.fetch);
         const sent = await attachPlatformId(db, msg.id, r.messageId, { status: 'SENT', error: null });

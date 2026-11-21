@@ -33,9 +33,11 @@ export type Conversation = {
   id: string; clientId: string; status: 'OPEN' | 'PENDING' | 'CLOSED'; unreadCount: number; lastMessageAt: string; lastPreview: string | null;
   channel: 'WHATSAPP' | 'MESSENGER' | 'INSTAGRAM'; lastInboundAt: string | null; window: 'open' | 'human_agent' | 'closed';
   windowOpen: boolean; contact: { id?: string; name: string | null; waId: string | null; username?: string | null; stage?: string }; client: { id: string; name: string }; assignee: { id: string; name: string } | null;
+  /** The client's AI assistant: OFF, drafts only, or answers on its own; and whether it asked a person to answer. */
+  ai?: { mode: 'OFF' | 'SUGGEST' | 'AUTO'; handoff: { at: string; reason: string | null } | null };
 };
 export type Message = {
-  id: string; direction: 'IN' | 'OUT'; type: string; body: string | null; status: string; error: string | null; createdAt: string; sentBy: { id: string; name: string } | null; auto?: boolean;
+  id: string; direction: 'IN' | 'OUT'; type: string; body: string | null; status: string; error: string | null; createdAt: string; sentBy: { id: string; name: string } | null; auto?: boolean; ai?: boolean;
   hasMedia: boolean; hasPreview: boolean; mediaStatus: 'PENDING' | 'READY' | 'FAILED' | null; mediaMime: string | null; mediaSize: number | null;
   fileName: string | null; mediaWidth: number | null; mediaHeight: number | null; durationSec: number | null; voice: boolean;
   template?: { name?: string; header?: string; footer?: string; buttons: string[]; headerKind?: 'image' | 'video' | 'document' };

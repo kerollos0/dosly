@@ -21,6 +21,7 @@ export function publicMessage(m: Message & { sentBy?: { id: string; name: string
     hasMedia: !!mk || m.mediaStatus === 'PENDING' || m.mediaStatus === 'FAILED',
     hasPreview: !!previewKey,
     auto: !!(payload as { autoRuleId?: string } | null)?.autoRuleId, // sent by an automatic reply
+    ai: !!(payload as { ai?: boolean } | null)?.ai, // sent by the AI assistant on its own
     ...(p.kind === 'template' ? { template: { name: p.template?.name, header: p.rendered?.header, footer: p.rendered?.footer, buttons: p.rendered?.buttons ?? [], headerKind: p.headerKind } } : {})
   };
 }
@@ -132,7 +133,7 @@ export const mediaRoutes: FastifyPluginAsync = async app => {
       const k = mediaKey(auth.agencyId, msg.id, c.convert ? (fileName.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin' : c.ext, c.convert ? '-src' : '');
       await store.put(k, tmp);
       const saved = await db.message.update({ where: { id: msg.id }, data: { mediaKey: k } });
-      await db.conversation.update({ where: { id: conv.id }, data: { lastMessageAt: saved.createdAt, lastPreview: previewText(saved.type, saved.body, saved.voice), unreadCount: 0, assigneeId: conv.assigneeId ?? auth.userId } });
+      await db.conversation.update({ where: { id: conv.id }, data: { lastMessageAt: saved.createdAt, lastPreview: previewText(saved.type, saved.body, saved.voice), unreadCount: 0, assigneeId: conv.assigneeId ?? auth.userId, aiHandoffAt: null, aiHandoffReason: null } });
       await queues.sendMessage(saved.id);
       await realtime.publish(auth.agencyId, { type: 'message.new', conversationId: conv.id, clientId: conv.clientId, messageId: saved.id, direction: 'OUT' });
       return reply.status(201).send(publicMessage(saved));
@@ -227,7 +228,7 @@ export const mediaRoutes: FastifyPluginAsync = async app => {
         await store.put(k, tmp);
         saved = await db.message.update({ where: { id: msg.id }, data: { mediaKey: k } });
       }
-      await db.conversation.update({ where: { id: conv.id }, data: { lastMessageAt: saved.createdAt, lastPreview: previewText('template', rendered.body), assigneeId: conv.assigneeId ?? auth.userId } });
+      await db.conversation.update({ where: { id: conv.id }, data: { lastMessageAt: saved.createdAt, lastPreview: previewText('template', rendered.body), assigneeId: conv.assigneeId ?? auth.userId, aiHandoffAt: null, aiHandoffReason: null } });
       await queues.sendMessage(saved.id);
       await realtime.publish(auth.agencyId, { type: 'message.new', conversationId: conv.id, clientId: conv.clientId, messageId: saved.id, direction: 'OUT' });
       return reply.status(201).send(publicMessage(saved));

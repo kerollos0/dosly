@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
-import { CalendarDays, Menu, Sun, X, History, LogOut, Megaphone, MessageCircle, MessagesSquare, Plug, Receipt, Send, Users, Briefcase, ShoppingBag, Zap, Contact } from 'lucide-react';
+import { CalendarDays, Menu, Sun, X, History, LogOut, Megaphone, MessageCircle, MessagesSquare, Plug, Receipt, Send, Users, Briefcase, ShoppingBag, Zap, Contact, Sparkles } from 'lucide-react';
 import { api, ApiError, can, fetcher, ROLE_LABEL, type Me } from '@/lib/api';
 import { cx } from '@/components/ui';
 import { MeContext } from '@/lib/me';
@@ -24,6 +24,7 @@ const NAV = [
   { href: '/ads', label: 'الإعلانات', icon: Megaphone, show: (m: Me) => can.manage(m.role) },
   { href: '/broadcasts', label: 'حملات واتساب', icon: Send, show: (m: Me) => can.manage(m.role) },
   { href: '/automations', label: 'ردود تلقائية', icon: Zap, show: (m: Me) => can.manage(m.role) },
+  { href: '/assistant', label: 'المساعد الذكي', icon: Sparkles, show: (m: Me) => can.manage(m.role) },
   { href: '/clients', label: 'العملاء', icon: Briefcase, show: () => true },
   { href: '/billing', label: 'الفواتير', icon: Receipt, show: (m: Me) => can.manage(m.role) },
   { href: '/channels', label: 'القنوات', icon: Plug, show: (m: Me) => can.manage(m.role) },

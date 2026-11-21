@@ -10,7 +10,7 @@ import { createAdminSession } from '../admin-auth.js';
 export const demoRoutes: FastifyPluginAsync = async app => {
   const { db, key, env, realtime } = app.deps;
   // As the worker does for real webhooks: downloads, automatic replies, and comment rules.
-  const hooks = { onMedia: (id: string) => app.deps.queues.fetchMedia(id), onSend: (id: string) => app.deps.queues.sendMessage(id), onComment: (id: string) => app.deps.queues.commentRules(id) };
+  const hooks = { onMedia: (id: string) => app.deps.queues.fetchMedia(id), onSend: (id: string) => app.deps.queues.sendMessage(id), onComment: (id: string) => app.deps.queues.commentRules(id), onAiReply: (id: string) => app.deps.queues.aiReply(id) };
   const secure = env.PUBLIC_URL.startsWith('https://');
   const roleSchema = z.object({ role: z.enum(ROLES).default('OWNER') });
 

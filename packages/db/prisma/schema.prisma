@@ -188,6 +188,7 @@ model Client {
   invoices    Invoice[]
   broadcasts  Broadcast[]
   autoRules   AutoRule[]
+  aiAssistant AiAssistant?
   legalName   String?  // the name on the client's invoices, when it differs from the display name
   taxId       String?  // the client's tax registration number (رقم التسجيل الضريبي), for B2B invoices
   billingAddress String?
@@ -351,6 +352,9 @@ model Conversation {
   lastPreview    String?
   autoReplyAt    DateTime? // the last automatic reply here: at most one every 2 minutes, so two bots never loop
   awayAt         DateTime? // the last "we're closed" reply: once per 12 hours per person
+  aiReplyAt      DateTime? // the assistant's last automatic answer here (one claim at a time)
+  aiHandoffAt    DateTime? // the assistant was not sure and asked a person to answer; cleared when someone replies
+  aiHandoffReason String?
   createdAt      DateTime @default(now())
   agency         Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
   client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -1124,4 +1128,32 @@ model AutoCommentClaim {
   socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
 
   @@id([socialAccountId, postExternalId, authorId])
+}
+
+enum AiMode {
+  OFF
+  SUGGEST // drafts a reply in the inbox; a person sends it
+  AUTO    // answers on its own when it is sure, otherwise asks a person
+}
+
+/// * A client's AI assistant: answers customers in Egyptian Arabic from what the agency wrote about the business.
+model AiAssistant {
+  id          String   @id @default(cuid())
+  agencyId    String
+  clientId    String   @unique
+  mode        AiMode   @default(SUGGEST)
+  channels    Channel[] // where AUTO answers: WHATSAPP, MESSENGER, INSTAGRAM
+  knowledge   String   @default("") // products, prices, delivery, hours, payment, returns: the only facts it may use
+  suggested   Int      @default(0)
+  autoSent    Int      @default(0)
+  handoffs    Int      @default(0)
+  tokensIn    BigInt   @default(0)
+  tokensOut   BigInt   @default(0)
+  lastError   String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([agencyId])
 }

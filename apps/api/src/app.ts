@@ -4,7 +4,7 @@ import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import { ZodError } from 'zod';
 import type { Db } from '@dosly/db';
-import type { MediaStore, Publisher } from '@dosly/core';
+import type { AiEngine, MediaStore, Publisher } from '@dosly/core';
 import { HttpError, resolveSession, SESSION_COOKIE, type ReadOnlyReason } from './auth.js';
 import type { Env } from './env.js';
 import { authRoutes } from './routes/auth.js';
@@ -19,6 +19,7 @@ import { orderRoutes } from './routes/orders.js';
 import { broadcastRoutes } from './routes/broadcasts.js';
 import { automationRoutes } from './routes/automations.js';
 import { customerRoutes } from './routes/customers.js';
+import { assistantRoutes } from './routes/assistant.js';
 import { billingRoutes } from './routes/billing.js';
 import { todayRoutes } from './routes/today.js';
 import { postRoutes } from './routes/posts.js';
@@ -46,6 +47,8 @@ export interface Queues {
   runBroadcast(broadcastId: string, at: Date): Promise<void>;
   /** Checks a new comment against the client's automatic comment rules (public reply, private message). */
   commentRules(commentId: string): Promise<void>;
+  /** A customer message nothing answered automatically: the client's AI assistant may answer it in a few seconds. */
+  aiReply(conversationId: string): Promise<void>;
   /** Demo mode only: queue the fake phone's delivered/read receipts and maybe a customer reply. */
   demoAfterSend?(messageId: string): Promise<void>;
 }
@@ -70,6 +73,8 @@ export interface Deps {
   /** Private storage for customer attachments; never served without an access check. */
   media: MediaStore;
   fetch?: typeof fetch; // injectable for tests; defaults to global fetch
+  /** The AI assistant: Claude with an API key, a simulated one in demo mode or without a key. Injectable for tests. */
+  ai?: AiEngine;
 }
 
 declare module 'fastify' {
@@ -120,6 +125,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   await app.register(broadcastRoutes, { prefix: '/api' });
   await app.register(automationRoutes, { prefix: '/api' });
   await app.register(customerRoutes, { prefix: '/api' });
+  await app.register(assistantRoutes, { prefix: '/api' });
   await app.register(todayRoutes, { prefix: '/api' });
   await app.register(postRoutes, { prefix: '/api' });
   await app.register(auditRoutes, { prefix: '/api' });

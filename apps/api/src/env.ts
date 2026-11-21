@@ -13,7 +13,10 @@ const schema = z.object({
   PRIVATE_MEDIA_DIR: z.string().default('./private-media'), // customer attachments, served only through the API
   ALLOW_SIGNUP: z.enum(['true', 'false']).default('true'),
   // Demo mode: no Meta calls at all. Visitors get a private sandbox agency with simulated customers.
-  DEMO_MODE: z.enum(['true', 'false']).default('false')
+  DEMO_MODE: z.enum(['true', 'false']).default('false'),
+  // The AI assistant. Without a key (and always in demo mode) a simulated assistant answers from the business info.
+  ANTHROPIC_API_KEY: z.string().optional(),
+  AI_MODEL: z.string().default('claude-opus-5-5')
 }).refine(e => e.DEMO_MODE === 'true' || (e.META_APP_SECRET.length > 0 && e.META_VERIFY_TOKEN.length >= 8), {
   message: 'META_APP_SECRET and META_VERIFY_TOKEN (8+ chars) are required unless DEMO_MODE=true'
 });

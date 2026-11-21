@@ -4,7 +4,7 @@ import { pino } from 'pino';
 import { z } from 'zod';
 import { createDb, Prisma } from '@dosly/db';
 import { demoFetch, loadKey, publishFacebookPost, publishInstagramPost } from '@dosly/shared';
-import { runCommentRules, broadcastsDue, sendBroadcastBatch, simulateBroadcastOutcome, startBroadcast, generateDueInvoices, adAccountsDue, processStoreWebhook, simulateConfirmPress, simulateOrder, sweepConfirmations, type StoreWebhookPayload, syncAdAccount, DEMO_TTL_HOURS, deleteExpiredDemos, fetchInboundMedia, localMediaStore, markMediaFailed, markSendFailed, overduePosts, pendingInboundMedia, PermanentMediaError, processMetaWebhook, publishPost, sendQueuedMessage, simulateComment, simulateInbound, simulateSocialMessage, simulateReply, simulateStatus, syncTemplates, type MediaDeps, type Publishers, type Publisher } from '@dosly/core';
+import { aiAutoReply, pickEngine, runCommentRules, broadcastsDue, sendBroadcastBatch, simulateBroadcastOutcome, startBroadcast, generateDueInvoices, adAccountsDue, processStoreWebhook, simulateConfirmPress, simulateOrder, sweepConfirmations, type StoreWebhookPayload, syncAdAccount, DEMO_TTL_HOURS, deleteExpiredDemos, fetchInboundMedia, localMediaStore, markMediaFailed, markSendFailed, overduePosts, pendingInboundMedia, PermanentMediaError, processMetaWebhook, publishPost, sendQueuedMessage, simulateComment, simulateInbound, simulateSocialMessage, simulateReply, simulateStatus, syncTemplates, type MediaDeps, type Publishers, type Publisher } from '@dosly/core';
 import type { Job } from 'bullmq';
 
 const env = z.object({
@@ -16,6 +16,8 @@ const env = z.object({
   MEDIA_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(4), // ffmpeg and image work are CPU heavy
   META_APP_ID: z.string().optional(), // echoes of messages Dosly sent are skipped by this app id
   DEMO_MODE: z.enum(['true', 'false']).default('false'),
+  ANTHROPIC_API_KEY: z.string().optional(), // the AI assistant; without it (or in demo mode) a simulated assistant answers
+  AI_MODEL: z.string().default('claude-opus-5-5'),
   DEMO_AMBIENT_SECONDS: z.coerce.number().int().min(0).default(120) // 0 turns off the background customers
 }).parse(process.env);
 const demo = env.DEMO_MODE === 'true';
@@ -48,7 +50,10 @@ const demoAfterPrivateReply = demoQueue ? async (messageId: string) => {
   if (Math.random() < 0.6) await demoQueue.add('reply', { messageId }, { ...o, delay: 12_000 + Math.random() * 10_000 });
 } : undefined;
 const commentRulesLater = async (commentId: string) => { await mediaQueue.add('comment-rules', { commentId }, { jobId: `cr-${commentId}`, ...jobOpts(3, 5000) }); };
-const hooks = { onMedia: fetchMediaLater, onSend: sendLater, onComment: commentRulesLater, key, fetch: graphFetch, store, appId: env.META_APP_ID };
+// A few seconds' wait gathers a customer's burst of short messages into one answer.
+const aiReplyLater = async (conversationId: string) => { await mediaQueue.add('ai-reply', { conversationId }, { jobId: `ai-${conversationId}-${Math.floor(Date.now() / 5000)}`, delay: 4000, ...jobOpts(3, 10_000) }); };
+const aiEngine = pickEngine(env);
+const hooks = { onMedia: fetchMediaLater, onSend: sendLater, onComment: commentRulesLater, onAiReply: aiReplyLater, key, fetch: graphFetch, store, appId: env.META_APP_ID };
 const orderDeps = { db, pub, onSend: sendLater };
 
 const webhooks = new Worker('webhooks', async job => {
@@ -109,11 +114,17 @@ const media = new Worker('media', async job => {
         const orderId = (sent?.payload as { orderId?: string } | null)?.orderId;
         // An order confirmation gets a button press; the thank-you after it gets no reply.
         if (orderId && sent?.type === 'template') await demoQueue.add('press', { messageId: job.data.messageId }, { ...o, delay: 7000 + Math.random() * 8000 });
-        else if (!orderId && Math.random() < 0.5) await demoQueue.add('reply', { messageId: job.data.messageId }, { ...o, delay: 9000 + Math.random() * 8000 });
+        else if (!orderId && Math.random() < ((sent?.payload as { ai?: boolean } | null)?.ai ? 0.3 : 0.5)) await demoQueue.add('reply', { messageId: job.data.messageId }, { ...o, delay: 9000 + Math.random() * 8000 });
       }
       return r;
     }, e => markSendFailed(db, pub, job.data.messageId, e));
     case 'templates': return { templates: await syncTemplates(db, key, job.data.waNumberId, pub, graphFetch) };
+    case 'ai-reply': {
+      const r = await aiAutoReply({ db, pub, engine: aiEngine, onSend: sendLater }, job.data.conversationId, new Date(), { lastAttempt: job.attemptsMade + 1 >= (job.opts.attempts ?? 1) });
+      // Busy: another answer is being written here, or the customer wrote again; look again in a few seconds.
+      if (r === 'busy') await mediaQueue.add('ai-reply', { conversationId: job.data.conversationId }, { jobId: `ai-${job.data.conversationId}-r${Date.now()}`, delay: 5000, ...jobOpts(3, 10_000) });
+      return r;
+    }
     case 'comment-rules': return runCommentRules({ db, pub, key, fetch: graphFetch, afterSend: demoAfterPrivateReply }, job.data.commentId);
     case 'sweep': {
       // Safety net for lost jobs: downloads still pending, and sends still queued after a few minutes.
