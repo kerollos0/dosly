@@ -41,9 +41,10 @@ export type Message = {
   template?: { name?: string; header?: string; footer?: string; buttons: string[]; headerKind?: 'image' | 'video' | 'document' };
 };
 export type TemplateField = { id: string; part: 'header' | 'body' | 'button'; key: string; buttonIndex?: number };
+export type TemplateShape = { fields: TemplateField[]; headerMedia: 'IMAGE' | 'VIDEO' | 'DOCUMENT' | null; headerText?: string; body: string; footer?: string; buttons: { type: string; text: string; url?: string }[] };
 export type Template = {
   id: string; name: string; language: string; category: string; status: string; reason: string | null;
-  shape: { fields: TemplateField[]; headerMedia: 'IMAGE' | 'VIDEO' | 'DOCUMENT' | null; headerText?: string; body: string; footer?: string; buttons: { type: string; text: string; url?: string }[] };
+  shape: TemplateShape;
 };
 export type ClientReview = 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'CHANGES_REQUESTED';
 export const REVIEW_LABEL: Record<ClientReview, string> = { NOT_REQUIRED: '', PENDING: 'مستني موافقة العميل', APPROVED: 'العميل وافق', CHANGES_REQUESTED: 'العميل طلب تعديل' };

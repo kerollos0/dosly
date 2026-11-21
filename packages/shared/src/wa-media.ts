@@ -80,4 +80,7 @@ export async function sendWhatsAppMessage(o: { phoneNumberId: string; token: str
 
 /** Meta error codes that will not succeed on retry (bad media, expired id, recipient problems). */
 export const PERMANENT_WA_ERRORS = new Set([100, 131008, 131009, 131051, 131052, 131053, 132000, 132001, 132005, 132007, 132012, 132015, 132016, 132018, 190]);
-export const isPermanentGraphError = (e: unknown) => e instanceof GraphError && ((e.code !== undefined && PERMANENT_WA_ERRORS.has(e.code)) || e.status === 400 || e.status === 404);
+/** Throughput and pair-rate limits: wait and send again (Meta returns some of them as HTTP 400). */
+export const THROTTLE_WA_ERRORS = new Set([4, 80007, 130429, 131048, 131056]);
+export const isPermanentGraphError = (e: unknown) => e instanceof GraphError && !(e.code !== undefined && THROTTLE_WA_ERRORS.has(e.code))
+  && ((e.code !== undefined && PERMANENT_WA_ERRORS.has(e.code)) || e.status === 400 || e.status === 404);

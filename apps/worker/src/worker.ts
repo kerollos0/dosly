@@ -4,7 +4,7 @@ import { pino } from 'pino';
 import { z } from 'zod';
 import { createDb, Prisma } from '@dosly/db';
 import { demoFetch, loadKey, publishFacebookPost, publishInstagramPost } from '@dosly/shared';
-import { generateDueInvoices, adAccountsDue, processStoreWebhook, simulateConfirmPress, simulateOrder, sweepConfirmations, type StoreWebhookPayload, syncAdAccount, DEMO_TTL_HOURS, deleteExpiredDemos, fetchInboundMedia, localMediaStore, markMediaFailed, markSendFailed, overduePosts, pendingInboundMedia, PermanentMediaError, processMetaWebhook, publishPost, sendQueuedMessage, simulateComment, simulateInbound, simulateSocialMessage, simulateReply, simulateStatus, syncTemplates, type MediaDeps, type Publishers, type Publisher } from '@dosly/core';
+import { broadcastsDue, sendBroadcastBatch, simulateBroadcastOutcome, startBroadcast, generateDueInvoices, adAccountsDue, processStoreWebhook, simulateConfirmPress, simulateOrder, sweepConfirmations, type StoreWebhookPayload, syncAdAccount, DEMO_TTL_HOURS, deleteExpiredDemos, fetchInboundMedia, localMediaStore, markMediaFailed, markSendFailed, overduePosts, pendingInboundMedia, PermanentMediaError, processMetaWebhook, publishPost, sendQueuedMessage, simulateComment, simulateInbound, simulateSocialMessage, simulateReply, simulateStatus, syncTemplates, type MediaDeps, type Publishers, type Publisher } from '@dosly/core';
 import type { Job } from 'bullmq';
 
 const env = z.object({
@@ -110,8 +110,9 @@ const media = new Worker('media', async job => {
     case 'sweep': {
       // Safety net for lost jobs: downloads still pending, and sends still queued after a few minutes.
       for (const m of await pendingInboundMedia(db)) await fetchMediaLater(m.id);
-      const stuck = await db.message.findMany({ where: { direction: 'OUT', status: 'QUEUED', payload: { not: Prisma.DbNull }, createdAt: { lt: new Date(Date.now() - 5 * 60_000), gt: new Date(Date.now() - 24 * 3600_000) } }, select: { id: true }, take: 200 });
-      for (const m of stuck) await mediaQueue.add('send', { messageId: m.id }, { jobId: `send-${m.id}`, ...jobOpts(4, 3000) });
+      const stuck = await db.message.findMany({ where: { direction: 'OUT', status: 'QUEUED', payload: { not: Prisma.DbNull }, createdAt: { lt: new Date(Date.now() - 5 * 60_000), gt: new Date(Date.now() - 24 * 3600_000) } }, select: { id: true, payload: true }, take: 200 });
+      // Campaign messages are sent by their campaign's own loop (it claims each one), never from here.
+      for (const m of stuck.filter(x => !(x.payload as { broadcastId?: string } | null)?.broadcastId)) await mediaQueue.add('send', { messageId: m.id }, { jobId: `send-${m.id}`, ...jobOpts(4, 3000) });
       return { stuck: stuck.length };
     }
   }
@@ -161,8 +162,44 @@ const billingWorker = new Worker('billing', async job => {
 }, { connection, concurrency: 1 });
 await billingQueue.upsertJobScheduler('billing-recurring', { every: 60 * 60_000 }, { name: 'recurring' });
 
-const workers = [webhooks, posts, media, ads, orders, billingWorker];
-const queues = [sweeper, mediaQueue, adsQueue, ordersQueue, billingQueue];
+// Broadcasts: one job per broadcast (same job id, so never two at once) sends batch after batch until done.
+const broadcastQueue = new Queue('broadcasts', { connection });
+const runBroadcastLater = async (broadcastId: string) => {
+  const old = await broadcastQueue.getJob(`bc-${broadcastId}`);
+  if (old) { const st = await old.getState(); if (st !== 'completed' && st !== 'failed') return false; await old.remove().catch(() => {}); }
+  await broadcastQueue.add('run', { broadcastId }, { jobId: `bc-${broadcastId}`, ...jobOpts(5, 10_000) });
+  return true;
+};
+const broadcastWorker = new Worker('broadcasts', async job => {
+  if (job.name === 'sweep') {
+    // Broadcasts whose time came without a job (Redis lost it), and running ones whose job died.
+    let queued = 0;
+    for (const b of await broadcastsDue(db)) if (await runBroadcastLater(b.id)) queued++;
+    return { queued };
+  }
+  const id: string = job.data.broadcastId;
+  await startBroadcast(db, pub, id);
+  const deps = {
+    ...mediaDeps,
+    onSent: demoQueue ? async (messageId: string) => { await simulateBroadcastOutcome(demoQueue, messageId); } : undefined
+  };
+  let total = { sent: 0, failed: 0, skipped: 0 };
+  for (;;) {
+    const r = await sendBroadcastBatch(deps, id, { batch: 40, concurrency: 8, pauseMs: demo ? 400 : 0 });
+    total = { sent: total.sent + r.sent, failed: total.failed + r.failed, skipped: total.skipped + r.skipped };
+    await job.updateProgress(total);
+    if (r.done) break;
+    // Meta said slow down (130429 / 131056): wait, then carry on where we stopped.
+    if (r.slowDown) await new Promise(res => setTimeout(res, 15_000));
+    else if (!r.sent && !r.failed && !r.skipped) await new Promise(res => setTimeout(res, 5_000)); // only retries left: give Meta a moment
+  }
+  log.info({ broadcastId: id, ...total }, 'Broadcast finished');
+  return total;
+}, { connection, concurrency: 4, lockDuration: 120_000 });
+await broadcastQueue.upsertJobScheduler('broadcasts-sweep', { every: 60_000 }, { name: 'sweep' });
+
+const workers = [webhooks, posts, media, ads, orders, billingWorker, broadcastWorker];
+const queues = [sweeper, mediaQueue, adsQueue, ordersQueue, billingQueue, broadcastQueue];
 if (demoQueue) {
   queues.push(demoQueue);
   await demoQueue.upsertJobScheduler('demo-cleanup', { every: 10 * 60_000 }, { name: 'cleanup' });
@@ -170,8 +207,8 @@ if (demoQueue) {
   else await demoQueue.removeJobScheduler('demo-ambient');
   workers.push(new Worker('demo', async job => {
     switch (job.name) {
-      case 'status': return simulateStatus(db, pub, job.data.messageId, job.data.status);
-      case 'reply': return simulateReply(db, pub, job.data.messageId, hooks);
+      case 'status': return simulateStatus(db, pub, job.data.messageId, job.data.status, job.data.error);
+      case 'reply': return simulateReply(db, pub, job.data.messageId, hooks, job.data.body);
       case 'press': return simulateConfirmPress(db, pub, job.data.messageId, hooks);
       case 'cleanup': return { deleted: await deleteExpiredDemos(db, new Date(), store) };
       case 'ambient': {

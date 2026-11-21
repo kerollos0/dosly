@@ -43,6 +43,7 @@ export function useRealtime(enabled: boolean) {
       // Orders: the orders page (and its paged list), the panel beside a chat, and sales on the ads page.
       if (e.type.startsWith('order.')) void mutate(k => typeof k === 'string' && (k.includes('/orders') || k.startsWith('/ads/overview')));
       if (e.type.startsWith('invoice.')) void mutate(k => typeof k === 'string' && k.startsWith('/billing'));
+      // Broadcast pages refresh themselves through useLiveRefresh: receipts arrive in bursts of thousands.
       // The "today" screen counts these. Delivery receipts don't change it, and a burst refreshes once.
       if (/^(message\.new|conversation\.|comment\.|ads\.alert|post\.|order\.|invoice\.)/.test(e.type) && !todayTimer) {
         todayTimer = setTimeout(() => { todayTimer = undefined; void mutate('/today'); }, 2000);

@@ -51,6 +51,11 @@ export const DEMO_TEMPLATES: MetaTemplate[] = [
     { type: 'FOOTER', text: 'ابعت "إيقاف" لو مش عايز رسايل عروض' },
     { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'عايز أطلب' }, { type: 'QUICK_REPLY', text: 'إيقاف' }] }
   ] },
+  { id: '9100000000007', name: 'weekend_offer', language: 'ar', status: 'APPROVED', category: 'MARKETING', parameter_format: 'POSITIONAL', components: [
+    { type: 'BODY', text: 'أهلاً {{1}} ✨ عندنا عرض لآخر الأسبوع: {{2}}. العرض شغال لحد {{3}}، ابعتلنا هنا لو حابب تحجز أو تطلب.' },
+    { type: 'FOOTER', text: 'ابعت "إيقاف" لو مش عايز رسايل عروض' },
+    { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'عايز أعرف أكتر' }, { type: 'QUICK_REPLY', text: 'إيقاف العروض' }] }
+  ] },
   { id: '9100000000004', name: 'new_menu', language: 'ar', status: 'PENDING', category: 'MARKETING', parameter_format: 'POSITIONAL', components: [
     { type: 'BODY', text: 'المنيو الجديد نزل يا {{1}}! تعالى جرّبه.' }
   ] },
@@ -147,9 +152,9 @@ export function demoButtonPayload(o: { phoneNumberId: string; waId: string; name
 }
 
 /** A WhatsApp webhook payload moving one outbound message to a new status. */
-export function demoStatusPayload(o: { phoneNumberId: string; waMessageId: string; status: 'sent' | 'delivered' | 'read'; at?: Date }) {
+export function demoStatusPayload(o: { phoneNumberId: string; waMessageId: string; status: 'sent' | 'delivered' | 'read' | 'failed'; at?: Date; error?: { code: number; title: string } }) {
   const ts = String(Math.floor((o.at ?? new Date()).getTime() / 1000));
-  return wrap(o.phoneNumberId, { statuses: [{ id: o.waMessageId, status: o.status, timestamp: ts }] });
+  return wrap(o.phoneNumberId, { statuses: [{ id: o.waMessageId, status: o.status, timestamp: ts, ...(o.error && { errors: [o.error] }) }] });
 }
 
 const PEOPLE_FIRST = ['أحمد', 'مريم', 'سارة', 'يوسف', 'نور', 'كريم', 'هبة', 'ياسمين', 'عمر', 'منة', 'مينا', 'مارينا', 'دينا', 'خالد'];

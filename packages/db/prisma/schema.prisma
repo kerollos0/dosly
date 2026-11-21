@@ -48,6 +48,7 @@ model Agency {
   subscriptions ClientSubscription[]
   invoices    Invoice[]
   invoicePayments InvoicePayment[]
+  broadcasts  Broadcast[]
   posts       Post[]
   auditLogs   AuditLog[]
   invites     Invite[]
@@ -122,6 +123,7 @@ model User {
   approvedPosts Post[] @relation("postApprover")
   orderFollowUps StoreOrder[] @relation("orderFollowUp")
   createdInvoices Invoice[]
+  createdBroadcasts Broadcast[]
 }
 
 model Membership {
@@ -184,6 +186,7 @@ model Client {
   orders      StoreOrder[]
   subscriptions ClientSubscription[]
   invoices    Invoice[]
+  broadcasts  Broadcast[]
   legalName   String?  // the name on the client's invoices, when it differs from the display name
   taxId       String?  // the client's tax registration number (رقم التسجيل الضريبي), for B2B invoices
   billingAddress String?
@@ -266,6 +269,7 @@ model WhatsAppNumber {
   templates      WaTemplate[]
   templatesSyncedAt DateTime?
   stores         StoreConnection[]
+  broadcasts     Broadcast[]
 
   @@index([agencyId])
 }
@@ -283,7 +287,9 @@ model Contact {
   name            String?
   adId            String?  // Click-to-WhatsApp: the Meta ad the customer first came from (webhook referral.source_id)
   adReferredAt    DateTime?
+  marketingOptOutAt DateTime? // asked for no more offers (wrote "إيقاف", pressed the stop button, or Meta reported 131050)
   createdAt       DateTime @default(now())
+  broadcasts      BroadcastRecipient[]
   agency          Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
   client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   waNumber        WhatsAppNumber? @relation(fields: [waNumberId], references: [id], onDelete: Cascade)
@@ -976,4 +982,74 @@ model InvoicePayment {
 
   @@index([invoiceId])
   @@index([agencyId, state])
+}
+
+// ---------- WhatsApp broadcasts ----------
+
+enum BroadcastStatus {
+  SCHEDULED // waiting for its time
+  SENDING
+  DONE
+  CANCELLED
+}
+
+/** One approved template sent to a chosen audience of a client's customers on one number. */
+model Broadcast {
+  id            String   @id @default(cuid())
+  agencyId      String
+  clientId      String
+  waNumberId    String
+  name          String
+  templateName  String
+  language      String
+  category      String   // MARKETING | UTILITY: marketing is limited per person by Meta and costs more
+  template      Json     // snapshot of the template's parameterFormat + components when it was chosen
+  values        Json     // field id -> text; "[الاسم]" becomes each customer's first name
+  audience      Json     // { kind, days? } see @dosly/shared broadcastAudienceSchema
+  headerKey     String?  // private storage key of the header image
+  headerMediaId String?  // Meta media id of that image, uploaded once per broadcast
+  headerUploadedAt DateTime?
+  status        BroadcastStatus @default(SCHEDULED)
+  scheduledAt   DateTime
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  total         Int      @default(0) // people picked when sending started
+  audienceAt    DateTime? // set once every recipient row is in, so a crash mid-pick resumes the pick
+  createdById   String?
+  createdAt     DateTime @default(now())
+  agency        Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  waNumber      WhatsAppNumber @relation(fields: [waNumberId], references: [id], onDelete: Cascade)
+  createdBy     User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  recipients    BroadcastRecipient[]
+
+  @@index([agencyId, createdAt])
+  @@index([status, scheduledAt])
+}
+
+enum RecipientState {
+  PENDING  // not sent yet
+  SENT     // handed to WhatsApp; delivery and reads come from the message's status
+  SKIPPED  // opted out after the audience was picked
+  FAILED
+}
+
+model BroadcastRecipient {
+  id          String   @id @default(cuid())
+  broadcastId String
+  contactId   String
+  messageId   String?  @unique
+  state       RecipientState @default(PENDING)
+  attempts    Int      @default(0)
+  lockedUntil DateTime? // a sender holds the row while sending it, so two runs never send to the same person
+  error       String?
+  errorCode   Int?
+  sentAt      DateTime?
+  repliedAt   DateTime?
+  broadcast   Broadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  contact     Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([broadcastId, contactId])
+  @@index([broadcastId, state])
+  @@index([contactId, sentAt])
 }

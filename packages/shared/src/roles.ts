@@ -13,7 +13,8 @@ export const PERMISSIONS = {
   'audit:view': ['OWNER', 'MANAGER'],
   'ads:view': ['OWNER', 'MANAGER'],
   'orders:view': ['OWNER', 'MANAGER', 'MODERATOR'], // see store orders and follow up the ones nobody confirmed
-  'billing:manage': ['OWNER', 'MANAGER'] // the agency's packages, invoices and payments from its clients
+  'billing:manage': ['OWNER', 'MANAGER'], // the agency's packages, invoices and payments from its clients
+  'broadcasts:send': ['OWNER', 'MANAGER'] // WhatsApp offers to many customers at once: costs money and the number's reputation
 } as const satisfies Record<string, readonly RoleName[]>;
 
 export type Permission = keyof typeof PERMISSIONS;

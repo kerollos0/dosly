@@ -18,7 +18,7 @@ export const store = localMediaStore(`/tmp/dosly-test-private-${process.pid}`);
 export type Graph = (url: string, init?: RequestInit) => unknown;
 
 export async function makeApp(graph: Graph = () => ({}), envOverrides: Record<string, string> = {}) {
-  const calls = { fetchMedia: [] as string[], sends: [] as string[], templateSyncs: [] as string[], adSyncs: [] as string[], webhooks: [] as string[], scheduled: [] as { postId: string; at: Date }[], cancelled: [] as string[], demo: [] as string[], events: [] as RealtimeEvent[], graph: [] as { url: string; body?: unknown }[] };
+  const calls = { fetchMedia: [] as string[], sends: [] as string[], templateSyncs: [] as string[], adSyncs: [] as string[], broadcasts: [] as string[], webhooks: [] as string[], scheduled: [] as { postId: string; at: Date }[], cancelled: [] as string[], demo: [] as string[], events: [] as RealtimeEvent[], graph: [] as { url: string; body?: unknown }[] };
   const env = loadEnv({ ...process.env, NODE_ENV: 'test', ENCRYPTION_KEY: key.toString('hex'), META_APP_SECRET: APP_SECRET, META_VERIFY_TOKEN: 'verify-me-123', PUBLIC_URL: 'http://localhost:3000', UPLOAD_DIR: '/tmp/dosly-test-uploads', ...envOverrides });
   const fakeFetch = (async (url: string, init?: RequestInit) => {
     calls.graph.push({ url, body: typeof init?.body === 'string' ? JSON.parse(init.body) : init?.body ? '[form]' : undefined });
@@ -34,6 +34,7 @@ export async function makeApp(graph: Graph = () => ({}), envOverrides: Record<st
       sendMessage: async id => { calls.sends.push(id); },
       syncTemplates: async id => { calls.templateSyncs.push(id); },
       syncAds: async id => { calls.adSyncs.push(id); },
+      runBroadcast: async id => { calls.broadcasts.push(id); },
       schedulePost: async (postId, at) => { calls.scheduled.push({ postId, at }); },
       cancelPost: async id => { calls.cancelled.push(id); },
       ...(env.DEMO_MODE === 'true' && { demoAfterSend: async (id: string) => { calls.demo.push(id); } })

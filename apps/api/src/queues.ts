@@ -6,6 +6,7 @@ export const QUEUE_POSTS = 'posts';
 export const QUEUE_DEMO = 'demo';
 export const QUEUE_MEDIA = 'media';
 export const QUEUE_ADS = 'ads';
+export const QUEUE_BROADCASTS = 'broadcasts';
 
 /** BullMQ producers. Job ids are deterministic so re-scheduling a post replaces its old job. */
 export function bullQueues(connection: { url: string }, demo = false): Queues & { close(): Promise<void> } {
@@ -14,6 +15,7 @@ export function bullQueues(connection: { url: string }, demo = false): Queues & 
   const posts = new Queue(QUEUE_POSTS, opts);
   const media = new Queue(QUEUE_MEDIA, opts);
   const ads = new Queue(QUEUE_ADS, opts);
+  const broadcasts = new Queue(QUEUE_BROADCASTS, opts);
   const demoQ = demo ? new Queue(QUEUE_DEMO, opts) : null;
   const postJobId = (id: string) => `post-${id}`;
   /** Adds a job unless the same one is waiting or running. A finished or failed one is replaced, so a manual retry works. */
@@ -49,6 +51,11 @@ export function bullQueues(connection: { url: string }, demo = false): Queues & 
     async syncAds(adAccountId) {
       await addOnce(ads, 'sync', { adAccountId, force: true }, `ads-${adAccountId}`, 3, 30_000);
     },
+    async runBroadcast(broadcastId, at) {
+      // The worker's one-minute sweep also starts any broadcast whose time came, so a lost job only delays it.
+      await broadcasts.remove(`bc-${broadcastId}`).catch(() => {});
+      await broadcasts.add('run', { broadcastId }, { jobId: `bc-${broadcastId}`, delay: Math.max(0, at.getTime() - Date.now()), attempts: 5, backoff: { type: 'exponential', delay: 10_000 }, removeOnComplete: 1000, removeOnFail: 5000 });
+    },
     async enqueueWebhook(eventId) {
       await webhooks.add('meta', { eventId }, { jobId: `wh-${eventId}`, attempts: 8, backoff: { type: 'exponential', delay: 2000 }, removeOnComplete: 1000, removeOnFail: 5000 });
     },
@@ -60,10 +67,10 @@ export function bullQueues(connection: { url: string }, demo = false): Queues & 
       await posts.remove(postJobId(postId)).catch(() => {});
     },
     async stats() {
-      const all = [webhooks, posts, media, ads, ...(demoQ ? [demoQ] : [])];
+      const all = [webhooks, posts, media, ads, broadcasts, ...(demoQ ? [demoQ] : [])];
       const counts = await Promise.all(all.map(q => q.getJobCounts('waiting', 'active', 'delayed', 'failed', 'completed')));
       return Object.fromEntries(all.map((q, i) => [q.name, counts[i]!]));
     },
-    async close() { await Promise.all([webhooks.close(), posts.close(), media.close(), ads.close(), demoQ?.close()]); }
+    async close() { await Promise.all([webhooks.close(), posts.close(), media.close(), ads.close(), broadcasts.close(), demoQ?.close()]); }
   };
 }

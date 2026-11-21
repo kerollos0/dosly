@@ -76,17 +76,36 @@ export async function simulateInbound(db: Db, pub: Publisher, o: { agencyId: str
 }
 
 /** Moves a sent demo message forward, the way a customer's phone would. */
-export async function simulateStatus(db: Db, pub: Publisher, messageId: string, status: 'delivered' | 'read') {
+export async function simulateStatus(db: Db, pub: Publisher, messageId: string, status: 'delivered' | 'read' | 'failed', error?: { code: number; title: string }) {
   const msg = await db.message.findUnique({ where: { id: messageId }, include: { conversation: { include: { waNumber: true } } } });
   if (!msg?.waMessageId) return;
-  if (!msg.conversation.waNumber) return simulateSocialStatus(db, pub, messageId, status);
-  await apply(db, demoStatusPayload({ phoneNumberId: msg.conversation.waNumber.phoneNumberId, waMessageId: msg.waMessageId, status }), pub);
+  if (!msg.conversation.waNumber) { if (status !== 'failed') await simulateSocialStatus(db, pub, messageId, status); return; }
+  await apply(db, demoStatusPayload({ phoneNumberId: msg.conversation.waNumber.phoneNumberId, waMessageId: msg.waMessageId, status, error }), pub);
 }
 
 /** The customer answers the agency's last reply. */
-export async function simulateReply(db: Db, pub: Publisher, messageId: string, hooks?: WebhookHooks) {
+export async function simulateReply(db: Db, pub: Publisher, messageId: string, hooks?: WebhookHooks, body?: string) {
   const msg = await db.message.findUnique({ where: { id: messageId }, include: { conversation: true } });
   if (!msg) return;
   if (msg.conversation.channel !== 'WHATSAPP') { await simulateSocialMessage(db, pub, { agencyId: msg.agencyId, contactId: msg.conversation.contactId }, hooks); return; }
-  await simulateInbound(db, pub, { agencyId: msg.agencyId, contactId: msg.conversation.contactId, media: Math.random() < 0.15 ? 'voice' : undefined }, hooks);
+  await simulateInbound(db, pub, { agencyId: msg.agencyId, contactId: msg.conversation.contactId, ...(body ? { body } : { media: Math.random() < 0.15 ? 'voice' as const : undefined }) }, hooks);
+}
+
+const OFFER_REPLIES = ['عايز أعرف أكتر', 'بكام؟', 'متاح توصيل لمدينة نصر؟', 'العرض ده لسه شغال؟', 'ممكن صور تانية؟', 'تمام هعدي عليكم بكرة', 'إيقاف العروض'];
+
+/**
+ * Demo: what real people do with an offer. Most phones get it and many read it, a few answer,
+ * and a few never get it (WhatsApp's per-person marketing cap, or a number not on WhatsApp).
+ */
+export async function simulateBroadcastOutcome(q: { add(name: string, data: object, opts: object): Promise<unknown> }, messageId: string) {
+  const o = { removeOnComplete: 100, removeOnFail: 100 };
+  const r = Math.random();
+  if (r < 0.03) return q.add('status', { messageId, status: 'failed', error: { code: 131049, title: 'This message was not delivered to maintain healthy ecosystem engagement.' } }, { ...o, delay: 3000 + Math.random() * 4000 });
+  if (r < 0.05) return q.add('status', { messageId, status: 'failed', error: { code: 131026, title: 'Message undeliverable' } }, { ...o, delay: 3000 + Math.random() * 4000 });
+  await q.add('status', { messageId, status: 'delivered' }, { ...o, delay: 1500 + Math.random() * 6000 });
+  if (Math.random() < 0.72) await q.add('status', { messageId, status: 'read' }, { ...o, delay: 8000 + Math.random() * 40_000 });
+  if (Math.random() < 0.14) {
+    const body = Math.random() < 0.12 ? 'إيقاف العروض' : OFFER_REPLIES[Math.floor(Math.random() * (OFFER_REPLIES.length - 1))]!;
+    await q.add('reply', { messageId, body }, { ...o, delay: 20_000 + Math.random() * 60_000 });
+  }
 }

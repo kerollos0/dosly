@@ -1,9 +1,10 @@
 import type { Db } from '@dosly/db';
-import { parseWebhook } from '@dosly/shared';
+import { errorCodeOf, parseWebhook } from '@dosly/shared';
 import type { Publisher } from './events.js';
 import { previewText } from './media.js';
 import { applyTemplateUpdates } from './templates.js';
 import { applyConfirmReply } from './orders.js';
+import { noteBroadcastInbound } from './broadcast.js';
 
 const STATUS_RANK = { QUEUED: 0, SENT: 1, DELIVERED: 2, READ: 3, FAILED: 4, RECEIVED: 0 } as const;
 const MAP = { sent: 'SENT', delivered: 'DELIVERED', read: 'READ', failed: 'FAILED' } as const;
@@ -55,6 +56,14 @@ export async function processWhatsAppWebhook(db: Db, payload: unknown, pub: Publ
     if (m.media) await hooks.onMedia?.(msg.id);
     // Orders placed with this phone before the customer ever wrote are linked to the chat now.
     await db.storeOrder.updateMany({ where: { clientId: num.clientId, waId: m.waId, contactId: null }, data: { contactId: contact.id } });
+    if (await noteBroadcastInbound(db, contact.id, m.body, m.timestamp)) {
+      // "إيقاف": they asked for no more offers. Saying so in the chat is allowed (they just wrote) and expected.
+      const text = 'تمام، مش هنبعتلك رسايل عروض تاني. لو احتجت أي حاجة ابعتلنا هنا في أي وقت 🙏';
+      const out = await db.message.create({ data: { agencyId: num.agencyId, conversationId: conv.id, direction: 'OUT', type: 'text', body: text, status: 'QUEUED', payload: { kind: 'text', optOut: true } } });
+      await db.conversation.update({ where: { id: conv.id }, data: { lastMessageAt: new Date(), lastPreview: text.slice(0, 140) } });
+      await pub.publish(num.agencyId, { type: 'message.new', conversationId: conv.id, clientId: num.clientId, messageId: out.id, direction: 'OUT' });
+      await hooks.onSend?.(out.id);
+    }
     if (m.buttonPayload || m.contextId) {
       await applyConfirmReply({ db, pub, onSend: hooks.onSend }, { agencyId: num.agencyId, clientId: num.clientId, conversationId: conv.id, contactId: contact.id, buttonPayload: m.buttonPayload, contextId: m.contextId, body: m.body, at: m.timestamp });
     }
@@ -67,6 +76,19 @@ export async function processWhatsAppWebhook(db: Db, payload: unknown, pub: Publ
     const next = MAP[s.status];
     if (!next || STATUS_RANK[next] <= STATUS_RANK[msg.status]) continue; // webhooks arrive out of order
     await db.message.update({ where: { id: msg.id }, data: { status: next, error: s.error ?? null } });
+    const broadcastId = (msg.payload as { broadcastId?: string } | null)?.broadcastId;
+    if (broadcastId) {
+      // Only a failure changes what the page must show now; delivered / read numbers are picked up by its polling.
+      if (next === 'FAILED') {
+        await db.broadcastRecipient.updateMany({ where: { messageId: msg.id }, data: { state: 'FAILED', error: s.error ?? null, errorCode: errorCodeOf(s.error) } });
+        await pub.publish(msg.agencyId, { type: 'broadcast.updated', broadcastId });
+      }
+    }
+    // 131050: the person stopped marketing messages from this business. Never offer them anything again.
+    if (next === 'FAILED' && errorCodeOf(s.error) === 131050) {
+      const conv = await db.conversation.findUnique({ where: { id: msg.conversationId }, select: { contactId: true } });
+      if (conv) await db.contact.updateMany({ where: { id: conv.contactId, marketingOptOutAt: null }, data: { marketingOptOutAt: s.timestamp } });
+    }
     updated++;
     await pub.publish(msg.agencyId, { type: 'message.status', conversationId: msg.conversationId, messageId: msg.id, status: next });
   }

@@ -12,7 +12,8 @@ export type RealtimeEvent =
   | { type: 'ads.alert'; clientId: string; kind: string }
   | { type: 'order.new'; orderId: string; clientId: string }
   | { type: 'order.updated'; orderId: string; clientId: string }
-  | { type: 'invoice.updated'; invoiceId: string; clientId: string };
+  | { type: 'invoice.updated'; invoiceId: string; clientId: string }
+  | { type: 'broadcast.updated'; broadcastId: string };
 
 export interface Publisher {
   publish(agencyId: string, event: RealtimeEvent): void | Promise<void>;

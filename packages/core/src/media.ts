@@ -20,7 +20,10 @@ export const previewText = (type: string, body?: string | null, voice?: boolean)
   (body?.trim() || (type === 'audio' && !voice ? 'ملف صوتي' : MEDIA_LABEL[type]) || 'رسالة').slice(0, 140);
 
 /** A retry will not help: the job records the failure and stops. */
-export class PermanentMediaError extends Error {}
+export class PermanentMediaError extends Error {
+  /** The platform's error code when there was one (e.g. 131026: the number is not on WhatsApp). */
+  constructor(message: string, readonly code?: number) { super(message); }
+}
 
 /** Streams a download to a temp file, hashing it and stopping at `max` bytes. */
 async function saveStream(body: ReadableStream<Uint8Array>, ext: string, max: number) {
@@ -308,7 +311,7 @@ export async function sendQueuedMessage(deps: MediaDeps, messageId: string): Pro
     await pub.publish(msg.agencyId, { type: 'message.status', conversationId: conv.id, messageId: msg.id, status: 'SENT' });
     return 'sent';
   } catch (e) {
-    if (isPermanentGraphError(e)) throw new PermanentMediaError((e as Error).message);
+    if (isPermanentGraphError(e)) throw new PermanentMediaError((e as Error).message, (e as GraphError).code);
     throw e;
   }
 }
