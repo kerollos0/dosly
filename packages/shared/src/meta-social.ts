@@ -60,6 +60,10 @@ export type SocialInbound = {
   text?: string;
   attachments: SocialAttachment[];
   deleted?: boolean;
+  /** Another app owns the thread (handover protocol): we only listen. */
+  standby?: boolean;
+  /** A button press (Get Started, a menu item), not words the person typed. */
+  postback?: boolean;
 };
 export type SocialRead = { platform: SocialPlatform; accountId: string; customerId: string; watermark?: Date; mid?: string; kind: 'read' | 'delivery' };
 export type SocialCommentEvent = {
@@ -90,6 +94,7 @@ export function parseSocialWebhook(payload: Json): { messages: SocialInbound[]; 
   if (!platform) return out;
   for (const entry of payload.entry ?? []) {
     const accountId = String(entry.id ?? '');
+    const standby = new Set<Json>(entry.standby ?? []);
     for (const ev of [...(entry.messaging ?? []), ...(entry.standby ?? [])] as Json[]) {
       const sender = String(ev.sender?.id ?? ''), recipient = String(ev.recipient?.id ?? '');
       const m = ev.message;
@@ -97,11 +102,11 @@ export function parseSocialWebhook(payload: Json): { messages: SocialInbound[]; 
         const echo = !!m.is_echo || sender === accountId;
         out.messages.push({
           platform, accountId, customerId: echo ? recipient : sender, mid: String(m.mid), timestamp: time(ev.timestamp), echo,
-          text: typeof m.text === 'string' ? m.text : undefined, deleted: !!m.is_deleted, appId: m.app_id ? String(m.app_id) : undefined,
+          text: typeof m.text === 'string' ? m.text : undefined, deleted: !!m.is_deleted, appId: m.app_id ? String(m.app_id) : undefined, standby: standby.has(ev) || undefined,
           attachments: (m.attachments ?? []).map((a: Json) => ({ type: String(a.type ?? 'fallback'), url: a.payload?.url, stickerId: a.payload?.sticker_id ? String(a.payload.sticker_id) : undefined, title: a.payload?.title ?? a.title }))
         });
       } else if (ev.postback?.mid || ev.postback?.title) {
-        out.messages.push({ platform, accountId, customerId: sender, mid: String(ev.postback.mid ?? `pb-${sender}-${ev.timestamp}`), timestamp: time(ev.timestamp), echo: false, text: ev.postback.title, attachments: [] });
+        out.messages.push({ platform, accountId, customerId: sender, mid: String(ev.postback.mid ?? `pb-${sender}-${ev.timestamp}`), timestamp: time(ev.timestamp), echo: false, text: ev.postback.title, attachments: [], postback: true, standby: standby.has(ev) || undefined });
       }
       if (ev.read) out.reads.push({ platform, accountId, customerId: sender, kind: 'read', watermark: ev.read.watermark ? time(ev.read.watermark) : time(ev.timestamp), mid: ev.read.mid });
       if (ev.delivery) out.reads.push({ platform, accountId, customerId: sender, kind: 'delivery', watermark: ev.delivery.watermark ? time(ev.delivery.watermark) : undefined, mid: ev.delivery.mids?.[0] });

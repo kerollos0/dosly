@@ -1,11 +1,13 @@
 import type { Db } from '@dosly/db';
-import { errorCodeOf, parseWebhook } from '@dosly/shared';
+import { errorCodeOf, isStopRequest, parseWebhook } from '@dosly/shared';
 import type { Publisher } from './events.js';
 import { previewText } from './media.js';
 import { applyTemplateUpdates } from './templates.js';
 import { applyConfirmReply } from './orders.js';
 import { noteBroadcastInbound } from './broadcast.js';
+import { autoReplyToMessage } from './autoreply.js';
 
+const NO_AUTO_TYPES = new Set(['reaction', 'system', 'unsupported', 'interactive', 'button', 'order', 'request_welcome', 'ephemeral', 'errors']);
 const STATUS_RANK = { QUEUED: 0, SENT: 1, DELIVERED: 2, READ: 3, FAILED: 4, RECEIVED: 0 } as const;
 const MAP = { sent: 'SENT', delivered: 'DELIVERED', read: 'READ', failed: 'FAILED' } as const;
 
@@ -56,7 +58,8 @@ export async function processWhatsAppWebhook(db: Db, payload: unknown, pub: Publ
     if (m.media) await hooks.onMedia?.(msg.id);
     // Orders placed with this phone before the customer ever wrote are linked to the chat now.
     await db.storeOrder.updateMany({ where: { clientId: num.clientId, waId: m.waId, contactId: null }, data: { contactId: contact.id } });
-    if (await noteBroadcastInbound(db, contact.id, m.body, m.timestamp)) {
+    const stopped = await noteBroadcastInbound(db, contact.id, m.body, m.timestamp);
+    if (stopped) {
       // "إيقاف": they asked for no more offers. Saying so in the chat is allowed (they just wrote) and expected.
       const text = 'تمام، مش هنبعتلك رسايل عروض تاني. لو احتجت أي حاجة ابعتلنا هنا في أي وقت 🙏';
       const out = await db.message.create({ data: { agencyId: num.agencyId, conversationId: conv.id, direction: 'OUT', type: 'text', body: text, status: 'QUEUED', payload: { kind: 'text', optOut: true } } });
@@ -66,6 +69,11 @@ export async function processWhatsAppWebhook(db: Db, payload: unknown, pub: Publ
     }
     if (m.buttonPayload || m.contextId) {
       await applyConfirmReply({ db, pub, onSend: hooks.onSend }, { agencyId: num.agencyId, clientId: num.clientId, conversationId: conv.id, contactId: contact.id, buttonPayload: m.buttonPayload, contextId: m.contextId, body: m.body, at: m.timestamp });
+    }
+    // No automatic reply on top of: a button press or a quoted answer to something we sent (an order, an offer),
+    // a stop request, or things that aren't a message to answer (reactions, system notices).
+    if (!stopped && !m.buttonPayload && !m.contextId && !isStopRequest(m.body) && !NO_AUTO_TYPES.has(m.type)) {
+      await autoReplyToMessage(db, pub, hooks.onSend, { conversationId: conv.id, body: m.body, at: m.timestamp });
     }
   }
 

@@ -4,6 +4,7 @@ import type { Publisher } from './events.js';
 import type { MediaStore } from './media-store.js';
 import { previewText } from './media.js';
 import { processWhatsAppWebhook, type WebhookHooks } from './webhooks.js';
+import { autoReplyToMessage } from './autoreply.js';
 
 export type SocialHooks = WebhookHooks & {
   /** With the encryption key, new Messenger/Instagram customers get their name and picture from the Graph API. */
@@ -13,6 +14,8 @@ export type SocialHooks = WebhookHooks & {
   appId?: string;
   /** To delete an attachment the customer unsent. */
   store?: MediaStore;
+  /** A customer's new comment: the worker checks the client's comment rules (public reply, private message). */
+  onComment?: (commentId: string) => Promise<void>;
 };
 
 type Account = Prisma.SocialAccountGetPayload<object>;
@@ -140,6 +143,9 @@ export async function processSocialWebhook(db: Db, payload: unknown, pub: Publis
       await pub.publish(acc.agencyId, { type: 'message.new', conversationId: conv.id, clientId: acc.clientId, messageId: msg.id, direction: m.echo ? 'OUT' : 'IN' });
       if (url) await hooks.onMedia?.(msg.id);
     }
+    // Not when another app owns the thread, for button presses, or for story mentions and shared posts.
+    const answerable = !m.echo && !m.standby && !m.postback && !(m.attachments.length && !m.text && m.attachments.every(a => !['image', 'audio', 'video', 'file'].includes(a.type)));
+    if (answerable && created.length) await autoReplyToMessage(db, pub, hooks.onSend, { conversationId: created[0]!.conv.id, body: m.text, at: m.timestamp });
   }
 
   for (const r of reads) {
@@ -182,6 +188,7 @@ export async function processSocialWebhook(db: Db, payload: unknown, pub: Publis
       // can arrive out of order, so this looks at the thread rather than at this one comment.
       if (parentId) await threadStatus(db, acc.id, parentId);
       await pub.publish(acc.agencyId, { type: 'comment.new', commentId: created.id, clientId: acc.clientId, fromPage });
+      if (!fromPage) await hooks.onComment?.(created.id);
       continue;
     }
     if (!existing) continue;

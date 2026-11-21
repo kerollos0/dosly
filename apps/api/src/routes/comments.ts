@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { decrypt, deleteComment, GraphError, PRIVATE_REPLY_MS, replyToComment, sendSocialMessage, setCommentHidden, socialTextProblem } from '@dosly/shared';
-import { attachPlatformId } from '@dosly/core';
+import { decrypt, deleteComment, GraphError, PRIVATE_REPLY_MS, replyToComment, setCommentHidden, socialTextProblem } from '@dosly/shared';
+import { sendPrivateReply } from '@dosly/core';
 import type { AuthContext } from '../auth.js';
 import { assertClientAccess, audit, HttpError, requireAuth, requirePermission, visibleClientIds } from '../auth.js';
 
@@ -66,11 +66,11 @@ export const commentRoutes: FastifyPluginAsync = async app => {
       const post = targets.find(p => p.socialAccountId === t.socialAccountId && p.externalPostId === t.postExternalId)?.post;
       return {
         id: t.id, platform: t.platform, body: t.body, authorName: t.authorName, createdAt: t.createdAt, status: t.status, isHidden: t.isHidden,
-        privateReplyAt: t.privateReplyAt, privateConversationId: t.privateConversationId, canPrivateReply: !t.privateReplyAt && now - t.createdAt.getTime() < PRIVATE_REPLY_MS,
+        privateReplyAt: t.privateReplyAt, privateConversationId: t.privateConversationId, auto: !!t.autoRuleId, canPrivateReply: !t.privateReplyAt && now - t.createdAt.getTime() < PRIVATE_REPLY_MS,
         client: t.client, account: t.socialAccount,
         post: post ? { id: post.id, caption: post.caption.slice(0, 160), image: post.mediaUrls[0] ?? null } : null,
         replies: replies.filter(r => r.socialAccountId === t.socialAccountId && r.parentExternalId === t.externalId).map(r => ({
-          id: r.id, body: r.deletedAt ? null : r.body, fromPage: r.fromPage, authorName: r.authorName, createdAt: r.createdAt, isHidden: r.isHidden, deleted: !!r.deletedAt, sentBy: r.sentBy
+          id: r.id, body: r.deletedAt ? null : r.body, fromPage: r.fromPage, authorName: r.authorName, createdAt: r.createdAt, isHidden: r.isHidden, deleted: !!r.deletedAt, sentBy: r.sentBy, auto: !!r.autoRuleId
         }))
       };
     });
@@ -109,39 +109,11 @@ export const commentRoutes: FastifyPluginAsync = async app => {
     const tooLong = socialTextProblem(c.platform === 'INSTAGRAM' ? 'INSTAGRAM' : 'MESSENGER', text);
     if (tooLong) throw new HttpError(400, tooLong, 'too_long');
     if (Date.now() - c.createdAt.getTime() >= PRIVATE_REPLY_MS) throw new HttpError(409, 'عدّى أكتر من 7 أيام على الكومنت، وميتا مش بتسمح برد خاص بعدها', 'too_old');
-    // Claim the one allowed private reply first, so a double click cannot send two.
-    const claimed = await db.socialComment.updateMany({ where: { id: c.id, privateReplyAt: null }, data: { privateReplyAt: new Date() } });
-    if (!claimed.count) throw new HttpError(409, 'اتبعت رد خاص على الكومنت ده قبل كده. ميتا بتسمح برسالة واحدة بس لحد ما الشخص يرد', 'already_sent');
-    let sent: { recipientId: string; messageId: string };
-    try { sent = await sendSocialMessage({ token: c.token, recipient: { comment_id: c.externalId }, text }, f); }
-    catch (e) {
-      await db.socialComment.update({ where: { id: c.id }, data: { privateReplyAt: null } });
-      throw graphFailure(e, 'الرسالة الخاصة ماتبعتتش');
-    }
-    // The reply opens (or continues) a direct conversation; it stays read-only until the person answers.
-    // Meta documents recipient_id in the response for Instagram; without it there is no one to file it under.
-    let conversationId: string | null = null;
-    if (sent.recipientId) {
-      const channel = c.platform === 'INSTAGRAM' ? 'INSTAGRAM' as const : 'MESSENGER' as const;
-      const contact = await db.contact.upsert({
-        where: { socialAccountId_externalId: { socialAccountId: c.socialAccountId, externalId: sent.recipientId } },
-        create: { agencyId: c.agencyId, clientId: c.clientId, socialAccountId: c.socialAccountId, externalId: sent.recipientId, name: c.platform === 'INSTAGRAM' ? null : c.authorName, username: c.platform === 'INSTAGRAM' ? c.authorName : null },
-        update: {}
-      });
-      const now = new Date();
-      const conv = await db.conversation.upsert({
-        where: { socialAccountId_contactId: { socialAccountId: c.socialAccountId, contactId: contact.id } },
-        create: { agencyId: c.agencyId, clientId: c.clientId, channel, socialAccountId: c.socialAccountId, contactId: contact.id, lastMessageAt: now, lastPreview: text.slice(0, 140), assigneeId: auth.userId, status: 'PENDING' },
-        update: { lastMessageAt: now, lastPreview: text.slice(0, 140) }
-      });
-      conversationId = conv.id;
-      const draft = await db.message.create({ data: { agencyId: c.agencyId, conversationId: conv.id, direction: 'OUT', type: 'text', body: text, status: 'SENT', sentById: auth.userId, createdAt: now, payload: { commentId: c.id } } });
-      const msg = await attachPlatformId(db, draft.id, sent.messageId);
-      await realtime.publish(auth.agencyId, { type: 'message.new', conversationId: conv.id, clientId: c.clientId, messageId: msg.id, direction: 'OUT' });
-      await app.deps.queues.demoAfterSend?.(msg.id);
-    }
-    await db.socialComment.update({ where: { id: c.id }, data: { privateConversationId: conversationId } });
-    await db.socialComment.update({ where: { id: c.id }, data: { status: 'DONE' } });
+    let r: Awaited<ReturnType<typeof sendPrivateReply>>;
+    try { r = await sendPrivateReply({ db, pub: realtime, key, fetch: f, afterSend: app.deps.queues.demoAfterSend }, c, text, auth.userId); }
+    catch (e) { throw graphFailure(e, 'الرسالة الخاصة ماتبعتتش'); }
+    if (r === 'already_sent') throw new HttpError(409, 'اتبعت رد خاص على الكومنت ده قبل كده. ميتا بتسمح برسالة واحدة بس لحد ما الشخص يرد', 'already_sent');
+    const conversationId = r.conversationId;
     await audit(db, auth, 'comment.private_reply', 'SocialComment', c.id, { conversationId });
     await changed(auth.agencyId, c);
     return reply.status(201).send({ conversationId });

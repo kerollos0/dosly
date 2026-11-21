@@ -167,7 +167,7 @@ function Thread({ t, canReply, stale, onEditing, onDone }: { t: CommentThread; c
           {t.replies.map(r => (
             <li key={r.id} className={cx('rounded-[var(--radius-sm)] px-3 py-2 text-sm', r.fromPage ? 'bg-primary/8' : 'bg-surface-2')}>
               <p className="text-xs text-muted">
-                {r.fromPage ? <>رد الصفحة{r.sentBy ? ` · ${r.sentBy.name}` : ''}</> : <bdi dir={ig ? 'ltr' : 'auto'}>{ig && r.authorName ? `@${r.authorName}` : r.authorName ?? 'حد'}</bdi>} · {ago(r.createdAt)}{r.isHidden ? ' · مخفي' : ''}
+                {r.fromPage ? <>رد الصفحة{r.sentBy ? ` · ${r.sentBy.name}` : r.auto ? ' · رد تلقائي' : ''}</> : <bdi dir={ig ? 'ltr' : 'auto'}>{ig && r.authorName ? `@${r.authorName}` : r.authorName ?? 'حد'}</bdi>} · {ago(r.createdAt)}{r.isHidden ? ' · مخفي' : ''}
               </p>
               <p className={cx('whitespace-pre-wrap break-words', r.deleted && 'italic text-muted')} dir="auto">{r.deleted ? 'اتمسح' : r.body}</p>
             </li>

@@ -245,9 +245,24 @@ export async function sendQueuedMessage(deps: MediaDeps, messageId: string): Pro
     // Messenger / Instagram: the file goes with the message itself. Past 24h the HUMAN_AGENT tag allows 7 days.
     const w = socialWindow(conv.lastInboundAt);
     if (w === 'closed') throw new PermanentMediaError('عدّى أكتر من 7 أيام على آخر رسالة من العميل، فميتا مش هتسمح بالرد');
-    if (!mediaKeyNow || payload.kind === 'template' || payload.kind === 'text' || !conv.contact.externalId) throw new PermanentMediaError('الرسالة دي مش مدعومة هنا');
+    if (!conv.contact.externalId || payload.kind === 'template') throw new PermanentMediaError('الرسالة دي مش مدعومة هنا');
     const tag = w === 'human_agent' ? 'HUMAN_AGENT' as const : undefined;
     const recipientId = conv.contact.externalId;
+    if (payload.kind === 'text') {
+      // An automatic reply: words only, and only inside the normal 24h window (the human-agent tag is for people).
+      if (w !== 'open' && (payload as { autoRuleId?: string }).autoRuleId) throw new PermanentMediaError('عدّى أكتر من 24 ساعة على رسالة العميل، فالرد التلقائي ما اتبعتش');
+      try {
+        const r = await sendSocialMessage({ token, recipient: { id: recipientId }, text: msg.body ?? '', tag }, deps.fetch);
+        const sent = await attachPlatformId(db, msg.id, r.messageId, { status: 'SENT', error: null });
+        await db.conversation.update({ where: { id: conv.id }, data: { lastMessageAt: new Date(), lastPreview: previewText('text', msg.body) } });
+        await pub.publish(msg.agencyId, { type: 'message.status', conversationId: conv.id, messageId: sent.id, status: 'SENT' });
+        return 'sent';
+      } catch (e) {
+        if (isPermanentSocialError(e)) throw new PermanentMediaError((e as Error).message);
+        throw e;
+      }
+    }
+    if (!mediaKeyNow) throw new PermanentMediaError('الرسالة دي مش مدعومة هنا');
     try {
       if (!payload.fileSent) {
         const bytes = await readFile(store.localPath(mediaKeyNow));

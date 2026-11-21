@@ -20,6 +20,7 @@ export function publicMessage(m: Message & { sentBy?: { id: string; name: string
     ...rest,
     hasMedia: !!mk || m.mediaStatus === 'PENDING' || m.mediaStatus === 'FAILED',
     hasPreview: !!previewKey,
+    auto: !!(payload as { autoRuleId?: string } | null)?.autoRuleId, // sent by an automatic reply
     ...(p.kind === 'template' ? { template: { name: p.template?.name, header: p.rendered?.header, footer: p.rendered?.footer, buttons: p.rendered?.buttons ?? [], headerKind: p.headerKind } } : {})
   };
 }

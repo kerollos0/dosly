@@ -4,7 +4,7 @@ import { pino } from 'pino';
 import { z } from 'zod';
 import { createDb, Prisma } from '@dosly/db';
 import { demoFetch, loadKey, publishFacebookPost, publishInstagramPost } from '@dosly/shared';
-import { broadcastsDue, sendBroadcastBatch, simulateBroadcastOutcome, startBroadcast, generateDueInvoices, adAccountsDue, processStoreWebhook, simulateConfirmPress, simulateOrder, sweepConfirmations, type StoreWebhookPayload, syncAdAccount, DEMO_TTL_HOURS, deleteExpiredDemos, fetchInboundMedia, localMediaStore, markMediaFailed, markSendFailed, overduePosts, pendingInboundMedia, PermanentMediaError, processMetaWebhook, publishPost, sendQueuedMessage, simulateComment, simulateInbound, simulateSocialMessage, simulateReply, simulateStatus, syncTemplates, type MediaDeps, type Publishers, type Publisher } from '@dosly/core';
+import { runCommentRules, broadcastsDue, sendBroadcastBatch, simulateBroadcastOutcome, startBroadcast, generateDueInvoices, adAccountsDue, processStoreWebhook, simulateConfirmPress, simulateOrder, sweepConfirmations, type StoreWebhookPayload, syncAdAccount, DEMO_TTL_HOURS, deleteExpiredDemos, fetchInboundMedia, localMediaStore, markMediaFailed, markSendFailed, overduePosts, pendingInboundMedia, PermanentMediaError, processMetaWebhook, publishPost, sendQueuedMessage, simulateComment, simulateInbound, simulateSocialMessage, simulateReply, simulateStatus, syncTemplates, type MediaDeps, type Publishers, type Publisher } from '@dosly/core';
 import type { Job } from 'bullmq';
 
 const env = z.object({
@@ -41,7 +41,14 @@ const fetchMediaLater = async (messageId: string) => { await mediaQueue.add('fet
 // key + fetch: names of new Messenger/Instagram customers; store: removing attachments a customer unsent.
 const sendLater = async (messageId: string) => { await mediaQueue.add('send', { messageId }, { jobId: `send-${messageId}`, ...jobOpts(4, 3000) }); };
 // onSend: the thank-you after a customer confirms an order on WhatsApp.
-const hooks = { onMedia: fetchMediaLater, onSend: sendLater, key, fetch: graphFetch, store, appId: env.META_APP_ID };
+// Demo: the commenter reads the private message and, some of the time, answers it.
+const demoAfterPrivateReply = demoQueue ? async (messageId: string) => {
+  const o = { removeOnComplete: 100, removeOnFail: 100 };
+  await demoQueue.add('status', { messageId, status: 'read' }, { ...o, delay: 5000 });
+  if (Math.random() < 0.6) await demoQueue.add('reply', { messageId }, { ...o, delay: 12_000 + Math.random() * 10_000 });
+} : undefined;
+const commentRulesLater = async (commentId: string) => { await mediaQueue.add('comment-rules', { commentId }, { jobId: `cr-${commentId}`, ...jobOpts(3, 5000) }); };
+const hooks = { onMedia: fetchMediaLater, onSend: sendLater, onComment: commentRulesLater, key, fetch: graphFetch, store, appId: env.META_APP_ID };
 const orderDeps = { db, pub, onSend: sendLater };
 
 const webhooks = new Worker('webhooks', async job => {
@@ -107,6 +114,7 @@ const media = new Worker('media', async job => {
       return r;
     }, e => markSendFailed(db, pub, job.data.messageId, e));
     case 'templates': return { templates: await syncTemplates(db, key, job.data.waNumberId, pub, graphFetch) };
+    case 'comment-rules': return runCommentRules({ db, pub, key, fetch: graphFetch, afterSend: demoAfterPrivateReply }, job.data.commentId);
     case 'sweep': {
       // Safety net for lost jobs: downloads still pending, and sends still queued after a few minutes.
       for (const m of await pendingInboundMedia(db)) await fetchMediaLater(m.id);
@@ -219,7 +227,7 @@ if (demoQueue) {
           const r = Math.random();
           // WhatsApp stays the busiest channel; comments come next, then Messenger and Instagram messages.
           if (r < 0.35) await simulateInbound(db, pub, { agencyId: a.id, media: 'random' }, hooks);
-          else if (r < 0.6) await simulateComment(db, pub, { agencyId: a.id });
+          else if (r < 0.6) await simulateComment(db, pub, { agencyId: a.id }, hooks);
           else if (r < 0.72) await simulateSocialMessage(db, pub, { agencyId: a.id, media: Math.random() < 0.2 ? 'photo' : undefined }, hooks);
           else if (r < 0.82) await simulateOrder(orderDeps, { agencyId: a.id });
         }

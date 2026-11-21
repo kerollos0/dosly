@@ -17,6 +17,7 @@ import { commentRoutes } from './routes/comments.js';
 import { adsRoutes } from './routes/ads.js';
 import { orderRoutes } from './routes/orders.js';
 import { broadcastRoutes } from './routes/broadcasts.js';
+import { automationRoutes } from './routes/automations.js';
 import { billingRoutes } from './routes/billing.js';
 import { todayRoutes } from './routes/today.js';
 import { postRoutes } from './routes/posts.js';
@@ -42,6 +43,8 @@ export interface Queues {
   syncAds(adAccountId: string): Promise<void>;
   /** Starts (at its time) or cancels the delayed start of a WhatsApp broadcast. */
   runBroadcast(broadcastId: string, at: Date): Promise<void>;
+  /** Checks a new comment against the client's automatic comment rules (public reply, private message). */
+  commentRules(commentId: string): Promise<void>;
   /** Demo mode only: queue the fake phone's delivered/read receipts and maybe a customer reply. */
   demoAfterSend?(messageId: string): Promise<void>;
 }
@@ -114,6 +117,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   await app.register(orderRoutes, { prefix: '/api' });
   await app.register(billingRoutes, { prefix: '/api' });
   await app.register(broadcastRoutes, { prefix: '/api' });
+  await app.register(automationRoutes, { prefix: '/api' });
   await app.register(todayRoutes, { prefix: '/api' });
   await app.register(postRoutes, { prefix: '/api' });
   await app.register(auditRoutes, { prefix: '/api' });

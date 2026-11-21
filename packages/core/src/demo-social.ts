@@ -96,7 +96,7 @@ async function apply(db: Db, payload: object, pub: Publisher, hooks?: SocialHook
 }
 
 /** A new comment on one of the agency's published posts, or a reply in an existing thread. */
-export async function simulateComment(db: Db, pub: Publisher, o: { agencyId: string; clientId?: string; text?: string; platform?: 'FACEBOOK_PAGE' | 'INSTAGRAM' }) {
+export async function simulateComment(db: Db, pub: Publisher, o: { agencyId: string; clientId?: string; text?: string; platform?: 'FACEBOOK_PAGE' | 'INSTAGRAM' }, hooks?: SocialHooks) {
   const targets = await db.postTarget.findMany({
     where: { status: 'PUBLISHED', externalPostId: { not: null }, socialAccount: { agencyId: o.agencyId, ...(o.clientId ? { clientId: o.clientId } : {}), ...(o.platform ? { platform: o.platform } : {}), client: { archivedAt: null } } },
     include: { socialAccount: { include: { client: true } } }, orderBy: { publishedAt: 'desc' }, take: 20
@@ -112,7 +112,7 @@ export async function simulateComment(db: Db, pub: Publisher, o: { agencyId: str
   await apply(db, demoCommentPayload({
     platform: acc.platform, accountId: acc.externalId, postId: t.externalPostId!, commentId: demoCommentId(fromId), fromId,
     fromName: ig ? demoHandle(fromId) : demoPersonName(fromId), text, parentId: thread?.externalId
-  }), pub);
+  }), pub, hooks);
   return true;
 }
 

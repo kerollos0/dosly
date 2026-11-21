@@ -51,6 +51,9 @@ export function bullQueues(connection: { url: string }, demo = false): Queues & 
     async syncAds(adAccountId) {
       await addOnce(ads, 'sync', { adAccountId, force: true }, `ads-${adAccountId}`, 3, 30_000);
     },
+    async commentRules(commentId) {
+      await addOnce(media, 'comment-rules', { commentId }, `cr-${commentId}`, 3, 5000);
+    },
     async runBroadcast(broadcastId, at) {
       // The worker's one-minute sweep also starts any broadcast whose time came, so a lost job only delays it.
       await broadcasts.remove(`bc-${broadcastId}`).catch(() => {});

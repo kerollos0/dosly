@@ -18,7 +18,7 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
   return <input ref={ref} {...p} className={cx('h-10 w-full rounded-[var(--radius-sm)] border border-line bg-surface px-3 text-ink placeholder:text-muted', className)} />;
 });
 
-export function Textarea({ className, ...p }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function Textarea({ className, ...p }: TextareaHTMLAttributes<HTMLTextAreaElement> & { ref?: Ref<HTMLTextAreaElement> }) {
   return <textarea {...p} className={cx('w-full rounded-[var(--radius-sm)] border border-line bg-surface px-3 py-2 text-ink placeholder:text-muted', className)} />;
 }
 

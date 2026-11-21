@@ -187,6 +187,7 @@ model Client {
   subscriptions ClientSubscription[]
   invoices    Invoice[]
   broadcasts  Broadcast[]
+  autoRules   AutoRule[]
   legalName   String?  // the name on the client's invoices, when it differs from the display name
   taxId       String?  // the client's tax registration number (رقم التسجيل الضريبي), for B2B invoices
   billingAddress String?
@@ -329,6 +330,8 @@ model Conversation {
   lastMessageAt  DateTime @default(now())
   lastInboundAt  DateTime? // free-form replies are allowed within 24h of this (Messenger/Instagram: 7 days with the human agent tag)
   lastPreview    String?
+  autoReplyAt    DateTime? // the last automatic reply here: at most one every 2 minutes, so two bots never loop
+  awayAt         DateTime? // the last "we're closed" reply: once per 12 hours per person
   createdAt      DateTime @default(now())
   agency         Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
   client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -449,6 +452,7 @@ model SocialAccount {
   contacts       Contact[]
   conversations  Conversation[]
   comments       SocialComment[]
+  autoClaims     AutoCommentClaim[]
 
   @@unique([agencyId, platform, externalId])
   @@index([platform, externalId]) // webhook routing
@@ -482,6 +486,7 @@ model SocialComment {
   deletedAt         DateTime?
   privateReplyAt    DateTime? // Meta allows one private message per comment, within 7 days
   privateConversationId String? // the inbox conversation that private reply opened
+  autoRuleId        String?   // answered by this automatic comment rule (or, on our own reply, sent by it)
   createdAt         DateTime @default(now())
   agency            Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
   client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -1052,4 +1057,51 @@ model BroadcastRecipient {
   @@unique([broadcastId, contactId])
   @@index([broadcastId, state])
   @@index([contactId, sentAt])
+}
+
+enum AutoRuleKind {
+  WELCOME  // the first message someone ever sends
+  AWAY     // outside working hours
+  KEYWORD  // a message that has one of the words
+  COMMENT  // a comment on a post: public reply and/or one private message
+}
+
+/** A client's automatic replies: in chats (welcome, away, keywords) and on post comments. */
+model AutoRule {
+  id          String   @id @default(cuid())
+  agencyId    String
+  clientId    String
+  kind        AutoRuleKind
+  name        String?
+  enabled     Boolean  @default(true)
+  channels    Channel[] // chats: WHATSAPP, MESSENGER, INSTAGRAM
+  platforms   Platform[] // comments: FACEBOOK_PAGE, INSTAGRAM
+  keywords    String[]  // any of them, anywhere in the text; empty on a comment rule = every comment
+  postExternalId String? // a comment rule for one post only
+  postLabel   String?   // what that post said, to show which one
+  reply       String?   // chat reply, or the private message for a comment
+  publicReplies String[] // comment rules: one is picked at random, so the page does not repeat itself
+  hours       Json?     // AWAY: { days: [0-6, Sunday = 0], from: "10:00", to: "23:00" } in Cairo time
+  fired       Int      @default(0)
+  lastFiredAt DateTime?
+  lastError   String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, kind])
+  @@index([agencyId])
+}
+
+/** One automatic comment reply per person per post: the row is the claim, so two comments at once get one reply. */
+model AutoCommentClaim {
+  socialAccountId String
+  postExternalId  String
+  authorId        String
+  commentId       String   // the comment that got the reply
+  createdAt       DateTime @default(now())
+  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+
+  @@id([socialAccountId, postExternalId, authorId])
 }

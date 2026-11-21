@@ -14,6 +14,7 @@ export const PERMISSIONS = {
   'ads:view': ['OWNER', 'MANAGER'],
   'orders:view': ['OWNER', 'MANAGER', 'MODERATOR'], // see store orders and follow up the ones nobody confirmed
   'billing:manage': ['OWNER', 'MANAGER'], // the agency's packages, invoices and payments from its clients
+  'automations:manage': ['OWNER', 'MANAGER'], // automatic replies in chats and on comments
   'broadcasts:send': ['OWNER', 'MANAGER'] // WhatsApp offers to many customers at once: costs money and the number's reputation
 } as const satisfies Record<string, readonly RoleName[]>;
 

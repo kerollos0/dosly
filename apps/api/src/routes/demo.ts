@@ -9,6 +9,8 @@ import { createAdminSession } from '../admin-auth.js';
 /** Registered only when DEMO_MODE=true. Lets anyone open a private sandbox agency with one click. */
 export const demoRoutes: FastifyPluginAsync = async app => {
   const { db, key, env, realtime } = app.deps;
+  // As the worker does for real webhooks: downloads, automatic replies, and comment rules.
+  const hooks = { onMedia: (id: string) => app.deps.queues.fetchMedia(id), onSend: (id: string) => app.deps.queues.sendMessage(id), onComment: (id: string) => app.deps.queues.commentRules(id) };
   const secure = env.PUBLIC_URL.startsWith('https://');
   const roleSchema = z.object({ role: z.enum(ROLES).default('OWNER') });
 
@@ -57,7 +59,7 @@ export const demoRoutes: FastifyPluginAsync = async app => {
   app.post('/demo/inbound', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async req => {
     const { auth } = await sandboxOf(req);
     const { clientId, media } = z.object({ clientId: z.string().optional(), media: z.enum(['photo', 'voice', 'pricelist', 'random']).optional() }).parse(req.body ?? {});
-    await simulateInbound(db, realtime, { agencyId: auth.agencyId, clientId, media: media ?? 'random' }, { onMedia: id => app.deps.queues.fetchMedia(id) });
+    await simulateInbound(db, realtime, { agencyId: auth.agencyId, clientId, media: media ?? 'random' }, hooks);
     return { ok: true };
   });
 
@@ -66,8 +68,8 @@ export const demoRoutes: FastifyPluginAsync = async app => {
     const { auth } = await sandboxOf(req);
     const o = z.object({ kind: z.enum(['comment', 'message']), clientId: z.string().optional(), platform: z.enum(['FACEBOOK_PAGE', 'INSTAGRAM']).optional(), media: z.enum(['photo', 'voice', 'pricelist']).optional() }).parse(req.body ?? {});
     const ok = o.kind === 'comment'
-      ? await simulateComment(db, realtime, { agencyId: auth.agencyId, clientId: o.clientId, platform: o.platform })
-      : await simulateSocialMessage(db, realtime, { agencyId: auth.agencyId, clientId: o.clientId, platform: o.platform, media: o.media }, { onMedia: id => app.deps.queues.fetchMedia(id) });
+      ? await simulateComment(db, realtime, { agencyId: auth.agencyId, clientId: o.clientId, platform: o.platform }, hooks)
+      : await simulateSocialMessage(db, realtime, { agencyId: auth.agencyId, clientId: o.clientId, platform: o.platform, media: o.media }, hooks);
     if (!ok) throw new HttpError(404, 'مفيش صفحة أو بوست منشور للعميل ده', 'not_found');
     return { ok: true };
   });

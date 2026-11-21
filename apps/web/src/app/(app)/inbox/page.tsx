@@ -269,7 +269,7 @@ function Thread({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
                 {m.template && m.template.buttons.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{m.template.buttons.map((b, i) => <span key={i} className="rounded-full border border-current/40 px-2 py-0.5 text-xs">{b}</span>)}</div>}
                 <p className={cx('mt-1 flex items-center gap-1 text-xs', mediaOnly && 'px-2 pb-1', out ? 'opacity-80' : 'text-muted')}>
                   <span className="num">{format(new Date(m.createdAt), 'HH:mm')}</span>
-                  {m.sentBy && <span>· {m.sentBy.name}</span>}
+                  {m.sentBy ? <span>· {m.sentBy.name}</span> : m.auto && <span>· رد تلقائي</span>}
                   {out && <StatusIcon s={m.status} />}
                 </p>
                 {m.error && out && <p className={cx('mt-1 flex flex-wrap items-center gap-2 text-xs', mediaOnly && 'px-2 pb-1')}>{m.error} {m.status === 'FAILED' && m.hasMedia || m.type === 'template' && m.status === 'FAILED' ? <Retry m={m} label="ابعت تاني" /> : null}</p>}

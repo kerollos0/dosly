@@ -16,3 +16,4 @@ export * from './demo-orders.js';
 export * from './billing.js';
 export * from './demo-billing.js';
 export * from './broadcast.js';
+export * from './autoreply.js';
